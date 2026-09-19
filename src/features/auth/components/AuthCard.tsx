@@ -67,13 +67,13 @@ export default function AuthCard() {
 
   const handleVerifyOtp = async (e: FormEvent) => {
     e.preventDefault();
-    if (otpCode.length !== 6) return;
+    if (otpCode.length < 6) return;
     clearError();
     await verifySignUpOtp(otpCode);
   };
 
   const handleOtpChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+    const val = e.target.value.replace(/\D/g, '').slice(0, 8);
     setOtpCode(val);
     if (error) clearError();
   };
@@ -81,7 +81,7 @@ export default function AuthCard() {
   const handleOtpPaste = (e: ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
     const pasted = e.clipboardData.getData('text');
-    const val = pasted.replace(/\D/g, '').slice(0, 6);
+    const val = pasted.replace(/\D/g, '').slice(0, 8);
     if (val) {
       setOtpCode(val);
       if (error) clearError();
@@ -154,7 +154,7 @@ export default function AuthCard() {
                   Verificación de Seguridad
                 </div>
                 <h2 className="text-xl font-semibold text-white">
-                  Introduce el código de 6 dígitos
+                  Introduce el código de verificación
                 </h2>
                 <p className="mt-1 text-sm text-zinc-400">
                   Enviamos un código a{' '}
@@ -179,7 +179,7 @@ export default function AuthCard() {
                 >
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
                   <span className="break-words">
-                    Se ha enviado un nuevo código de 6 dígitos a tu correo.
+                    Se ha enviado un nuevo código de verificación a tu correo.
                   </span>
                 </div>
               )}
@@ -189,7 +189,7 @@ export default function AuthCard() {
                   htmlFor="auth-otp"
                   className="block text-center text-xs font-medium uppercase tracking-wider text-zinc-400"
                 >
-                  Código de 6 dígitos
+                  Código de verificación
                 </label>
                 <input
                   ref={otpInputRef}
@@ -198,7 +198,7 @@ export default function AuthCard() {
                   inputMode="numeric"
                   pattern="[0-9]*"
                   autoComplete="one-time-code"
-                  maxLength={6}
+                  maxLength={8}
                   placeholder="000000"
                   value={otpCode}
                   onChange={handleOtpChange}
@@ -210,7 +210,7 @@ export default function AuthCard() {
 
               <button
                 type="submit"
-                disabled={isLoading || isResending || otpCode.length !== 6}
+                disabled={isLoading || isResending || otpCode.length < 6}
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isLoading ? (
