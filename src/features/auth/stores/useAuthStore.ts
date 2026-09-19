@@ -273,16 +273,6 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
       const vaultKey = await deriveVaultKey(user.id, password);
 
-      // Garantiza la existencia del perfil también cuando el registro se
-      // completó sin sesión (flujo con confirmación por email).
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert({ id: user.id, email: user.email ?? email }, { onConflict: 'id' });
-
-      if (profileError) {
-        throw profileError;
-      }
-
       set({
         user,
         session,
@@ -367,14 +357,11 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
     authSubscription?.unsubscribe();
     authSubscription = null;
 
-    set({ isLoading: true, error: null });
-
     void supabase.auth
       .getSession()
       .then(({ data, error }) => {
         if (error) {
           set({
-            isLoading: false,
             error: toErrorMessage(error, 'No se pudo recuperar la sesión.'),
           });
           return;
@@ -383,12 +370,10 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         set({
           session: data.session,
           user: data.session?.user ?? null,
-          isLoading: false,
         });
       })
       .catch((cause: unknown) => {
         set({
-          isLoading: false,
           error: toErrorMessage(cause, 'No se pudo recuperar la sesión.'),
         });
       });
@@ -409,7 +394,6 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         session,
         user: session?.user ?? null,
         pendingConfirmationEmail: session ? null : get().pendingConfirmationEmail,
-        isLoading: false,
       });
     });
 

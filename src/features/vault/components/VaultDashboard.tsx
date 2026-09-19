@@ -4,7 +4,7 @@
  * Dashboard de la bóveda con EXACTAMENTE 2 acciones por archivo
  * (ver `DocumentRow.tsx`):
  *   1) "Descargar archivo" (flujo gateado por la contraseña en RAM).
- *   2) "Visualizar" (hover/tooltip/popover con previsualización).
+ *   2) "Visualizar" (modal centrado y limpio con metadatos y copiado de huella).
  *
  * Flujo de descarga
  * -----------------
@@ -229,42 +229,40 @@ export default function VaultDashboard() {
               </button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse text-left">
-                <thead>
-                  <tr className="bg-zinc-950/60 text-xs uppercase tracking-wider text-zinc-500">
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Nombre del archivo
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Versión
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Huella SHA-256
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Tamaño
-                    </th>
-                    <th scope="col" className="px-4 py-3 font-medium">
-                      Fecha
-                    </th>
-                    <th scope="col" className="px-4 py-3 text-right font-medium">
-                      Acciones
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {documents.map((doc) => (
-                    <DocumentRow
-                      key={doc.id}
-                      doc={doc}
-                      downloading={downloadingId}
-                      onDownload={handleDownload}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <table className="w-full border-collapse text-left">
+              <thead>
+                <tr className="bg-zinc-950/60 text-xs uppercase tracking-wider text-zinc-500">
+                  <th scope="col" className="px-5 py-3.5 font-medium">
+                    Nombre del archivo
+                  </th>
+                  <th scope="col" className="whitespace-nowrap px-4 py-3.5 font-medium">
+                    Versión
+                  </th>
+                  <th scope="col" className="whitespace-nowrap px-4 py-3.5 font-medium">
+                    Huella SHA-256
+                  </th>
+                  <th scope="col" className="whitespace-nowrap px-4 py-3.5 font-medium">
+                    Tamaño
+                  </th>
+                  <th scope="col" className="whitespace-nowrap px-4 py-3.5 font-medium">
+                    Fecha
+                  </th>
+                  <th scope="col" className="whitespace-nowrap px-5 py-3.5 text-right font-medium">
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/80">
+                {documents.map((doc) => (
+                  <DocumentRow
+                    key={doc.id}
+                    doc={doc}
+                    downloading={downloadingId}
+                    onDownload={handleDownload}
+                  />
+                ))}
+              </tbody>
+            </table>
           )}
         </section>
 

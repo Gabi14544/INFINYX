@@ -18,7 +18,7 @@ type Tab = 'login' | 'register';
 
 export default function AuthCard() {
   const [tab, setTab] = useState<Tab>('login');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => useAuthStore.getState().user?.email ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(false);

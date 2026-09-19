@@ -199,7 +199,7 @@ src/
 | `features/vault` | Orquestar el pipeline cifrado y el catálogo; recibir la clave **por parámetro** | Almacenar la `vaultKey` (vive en un único lugar) |
 | `shared` | Cliente Supabase tipado y tipos de dominio derivados del esquema real | Contener lógica de negocio |
 
-La UI (`src/App.tsx`) implementa una máquina de tres estados: sin `user` → `AuthCard`; con sesión pero sin `vaultKey` → diálogo de desbloqueo (`unlockVaultWithPassword`); con ambas → `VaultDashboard`. Durante la hidratación inicial se muestra un splash para evitar parpadeos.
+La UI (`src/App.tsx`) implementa un flujo unificado con un único inicio de sesión: si no hay sesión activa o la clave de bóveda no reside en memoria RAM (`vaultKey === null`, p. ej. tras recargar F5 o cerrar sesión), se renderiza única y exclusivamente la pantalla principal de autenticación (`AuthCard`). Una vez autenticado y derivada la `vaultKey` en RAM, se accede directamente a `VaultDashboard`.
 
 ### 4.2. Flujo de datos: subida
 
