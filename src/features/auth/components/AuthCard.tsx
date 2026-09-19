@@ -1,7 +1,8 @@
-import { useState } from 'react';
-import type { FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ChangeEvent, ClipboardEvent, FormEvent } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
   Check,
   Copy,
   Eye,
@@ -10,6 +11,7 @@ import {
   Loader2,
   Lock,
   MailCheck,
+  RefreshCw,
   ShieldCheck,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -23,9 +25,20 @@ export default function AuthCard() {
   const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Estado local para el flujo OTP
+  const [otpCode, setOtpCode] = useState('');
+  const [isResending, setIsResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
+  const otpInputRef = useRef<HTMLInputElement>(null);
+
   const {
     signIn,
     signUp,
+    verifySignUpOtp,
+    resendSignUpOtp,
+    cancelOtpFlow,
+    isAwaitingOtp,
+    otpEmail,
     isLoading,
     error,
     recoveryPhrase,
@@ -34,6 +47,12 @@ export default function AuthCard() {
     clearPendingConfirmation,
     clearError,
   } = useAuthStore();
+
+  useEffect(() => {
+    if (isAwaitingOtp) {
+      otpInputRef.current?.focus();
+    }
+  }, [isAwaitingOtp]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -44,6 +63,49 @@ export default function AuthCard() {
       setCopied(false);
       await signUp(email.trim(), password);
     }
+  };
+
+  const handleVerifyOtp = async (e: FormEvent) => {
+    e.preventDefault();
+    if (otpCode.length !== 6) return;
+    clearError();
+    await verifySignUpOtp(otpCode);
+  };
+
+  const handleOtpChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setOtpCode(val);
+    if (error) clearError();
+  };
+
+  const handleOtpPaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text');
+    const val = pasted.replace(/\D/g, '').slice(0, 6);
+    if (val) {
+      setOtpCode(val);
+      if (error) clearError();
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (isResending || isLoading) return;
+    setIsResending(true);
+    setResendSuccess(false);
+    clearError();
+    const success = await resendSignUpOtp();
+    setIsResending(false);
+    if (success) {
+      setResendSuccess(true);
+      window.setTimeout(() => setResendSuccess(false), 5000);
+    }
+  };
+
+  const handleCancelOtp = () => {
+    cancelOtpFlow();
+    setOtpCode('');
+    setResendSuccess(false);
+    clearError();
   };
 
   const handleCopyPhrase = async () => {
@@ -83,34 +145,153 @@ export default function AuthCard() {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-slate-900 shadow-2xl shadow-black/50">
-          {/* Pestañas */}
-          <div
-            role="tablist"
-            aria-label="Modo de autenticación"
-            className="grid grid-cols-2 border-b border-zinc-800 bg-zinc-950/60 p-1.5"
-          >
-            {(
-              [
-                { id: 'login', label: 'Iniciar Sesión' },
-                { id: 'register', label: 'Crear Cuenta' },
-              ] as { id: Tab; label: string }[]
-            ).map((t) => (
+          {isAwaitingOtp ? (
+            /* Vista de Verificación de Seguridad (OTP) */
+            <form onSubmit={handleVerifyOtp} className="space-y-5 p-6 sm:p-8">
+              <div>
+                <div className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Verificación de Seguridad
+                </div>
+                <h2 className="text-xl font-semibold text-white">
+                  Introduce el código de 6 dígitos
+                </h2>
+                <p className="mt-1 text-sm text-zinc-400">
+                  Enviamos un código a{' '}
+                  <strong className="text-zinc-200">{otpEmail}</strong>
+                </p>
+              </div>
+
+              {error && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-3 text-sm text-red-300"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="break-words">{error}</span>
+                </div>
+              )}
+
+              {resendSuccess && !error && (
+                <div
+                  role="status"
+                  className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-3 text-sm text-emerald-200"
+                >
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                  <span className="break-words">
+                    Se ha enviado un nuevo código de 6 dígitos a tu correo.
+                  </span>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="auth-otp"
+                  className="block text-center text-xs font-medium uppercase tracking-wider text-zinc-400"
+                >
+                  Código de 6 dígitos
+                </label>
+                <input
+                  ref={otpInputRef}
+                  id="auth-otp"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="000000"
+                  value={otpCode}
+                  onChange={handleOtpChange}
+                  onPaste={handleOtpPaste}
+                  disabled={isLoading || isResending}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3.5 text-center font-mono text-3xl font-bold tracking-[0.4em] text-emerald-400 placeholder:text-zinc-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
+                />
+              </div>
+
               <button
-                key={t.id}
-                role="tab"
-                aria-selected={tab === t.id}
-                type="button"
-                onClick={() => switchTab(t.id)}
-                className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
-                  tab === t.id
-                    ? 'bg-slate-800 text-white shadow ring-1 ring-zinc-700'
-                    : 'text-zinc-400 hover:bg-slate-800/50 hover:text-zinc-200'
-                }`}
+                type="submit"
+                disabled={isLoading || isResending || otpCode.length !== 6}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {t.label}
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Verificando…
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="h-4 w-4" />
+                    Verificar y entrar a la bóveda
+                  </>
+                )}
               </button>
-            ))}
-          </div>
+
+              <div className="flex flex-col items-center gap-2.5 pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={isLoading || isResending}
+                  className="inline-flex items-center gap-1.5 text-xs text-emerald-400 transition hover:text-emerald-300 disabled:opacity-50"
+                >
+                  {isResending ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Reenviando…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      ¿No recibiste el código? Reenviar
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelOtp}
+                  disabled={isLoading || isResending}
+                  className="inline-flex items-center gap-1.5 text-xs text-zinc-400 transition hover:text-zinc-200 disabled:opacity-50"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Volver / Cambiar correo
+                </button>
+              </div>
+
+              <p className="flex items-center justify-center gap-1.5 text-center text-xs text-zinc-500">
+                <Lock className="h-3 w-3" />
+                Cifrado de extremo a extremo · PBKDF2-SHA256 · Servidor ciego
+              </p>
+            </form>
+          ) : (
+            <>
+              {/* Pestañas */}
+              <div
+                role="tablist"
+                aria-label="Modo de autenticación"
+                className="grid grid-cols-2 border-b border-zinc-800 bg-zinc-950/60 p-1.5"
+              >
+                {(
+                  [
+                    { id: 'login', label: 'Iniciar Sesión' },
+                    { id: 'register', label: 'Crear Cuenta' },
+                  ] as { id: Tab; label: string }[]
+                ).map((t) => (
+                  <button
+                    key={t.id}
+                    role="tab"
+                    aria-selected={tab === t.id}
+                    type="button"
+                    onClick={() => switchTab(t.id)}
+                    className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+                      tab === t.id
+                        ? 'bg-slate-800 text-white shadow ring-1 ring-zinc-700'
+                        : 'text-zinc-400 hover:bg-slate-800/50 hover:text-zinc-200'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
 
           <form onSubmit={handleSubmit} className="space-y-4 p-6 sm:p-8">
             <div>
@@ -232,7 +413,9 @@ export default function AuthCard() {
               Cifrado de extremo a extremo · PBKDF2-SHA256 · Servidor ciego
             </p>
           </form>
-        </div>
+        </>
+      )}
+    </div>
 
         <p className="mt-4 text-center text-xs text-zinc-600">
           Infraestructura auditada · Ningún empleado puede leer tus documentos

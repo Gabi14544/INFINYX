@@ -130,6 +130,15 @@ export interface AuthState {
    * y NO redirigir al dashboard (`user`/`session` quedan en `null`).
    */
   pendingConfirmationEmail: string | null;
+  /** Indica si se espera la verificación del código OTP de 6 dígitos. */
+  isAwaitingOtp: boolean;
+  /** Correo pendiente de verificación OTP. */
+  otpEmail: string | null;
+  /**
+   * Contraseña en memoria RAM retenida temporalmente mientras se espera el código
+   * OTP para derivar en local la `vaultKey` (Zero-Knowledge) tras la verificación.
+   */
+  tempRegistrationPassword: string | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -143,11 +152,24 @@ export interface AuthActions {
    * `on_auth_user_created` (SECURITY DEFINER) sobre `auth.users`.
    *
    * Si el proyecto exige confirmación por email, `signUp` no devuelve
-   * sesión; en ese caso NO se autentica al usuario (se deja `user` y
-   * `session` en `null`) y se expone `pendingConfirmationEmail` para que
-   * la UI muestre el aviso de verificación sin redirigir al dashboard.
+   * sesión; en ese caso se activa el flujo OTP guardando temporalmente
+   * las credenciales en RAM para verificar el código de 6 dígitos.
    */
   signUp: (email: string, password: string) => Promise<void>;
+  /**
+   * Verifica el código OTP de registro de 6 dígitos contra Supabase Auth.
+   * Si es exitoso, deriva localmente la vaultKey con PBKDF2, limpia la contraseña
+   * temporal de RAM y da acceso al Dashboard.
+   */
+  verifySignUpOtp: (token: string) => Promise<boolean>;
+  /**
+   * Reenvía el código OTP de registro al correo en espera.
+   */
+  resendSignUpOtp: () => Promise<boolean>;
+  /**
+   * Cancela el flujo de verificación OTP y limpia las credenciales temporales en RAM.
+   */
+  cancelOtpFlow: () => void;
   /** Inicia sesión y carga la `CryptoKey` derivada en memoria. */
   signIn: (email: string, password: string) => Promise<void>;
   /** Cierra la sesión en Supabase y destruye de inmediato la clave en RAM. */
@@ -182,6 +204,9 @@ const INITIAL_STATE: AuthState = {
   vaultKey: null,
   recoveryPhrase: null,
   pendingConfirmationEmail: null,
+  isAwaitingOtp: false,
+  otpEmail: null,
+  tempRegistrationPassword: null,
   isLoading: false,
   error: null,
 };
@@ -214,17 +239,19 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         throw new Error('Supabase no devolvió el usuario tras el registro.');
       }
 
-      // Sin sesión => confirmación por email pendiente. No se autentica
-      // (user/session quedan en null), no se deriva clave ni se toca
-      // `profiles` — el trigger `on_auth_user_created` creará el perfil
-      // al confirmarse el alta. La UI muestra el aviso de verificación.
+      // Si el registro es exitoso y no devuelve sesión activa (requiere confirmación):
+      // guarda otpEmail = email, tempRegistrationPassword = password, e isAwaitingOtp = true.
+      // NO redirigir, NO limpiar la contraseña todavía.
       if (!data.session) {
         set({
           user: null,
           session: null,
           vaultKey: null,
           recoveryPhrase: null,
-          pendingConfirmationEmail: user.email ?? email,
+          pendingConfirmationEmail: null,
+          isAwaitingOtp: true,
+          otpEmail: user.email ?? email,
+          tempRegistrationPassword: password,
           isLoading: false,
           error: null,
         });
@@ -246,6 +273,9 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         vaultKey,
         recoveryPhrase,
         pendingConfirmationEmail: null,
+        isAwaitingOtp: false,
+        otpEmail: null,
+        tempRegistrationPassword: null,
         isLoading: false,
         error: null,
       });
@@ -255,6 +285,113 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         error: toErrorMessage(cause, 'No se pudo completar el registro.'),
       });
     }
+  },
+
+  verifySignUpOtp: async (token: string) => {
+    const email = get().otpEmail;
+    if (!email) {
+      set({ error: 'No hay un correo pendiente de verificación.' });
+      return false;
+    }
+
+    set({ isLoading: true, error: null });
+
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token: token.trim(),
+        type: 'signup',
+      });
+
+      if (error) {
+        set({
+          isLoading: false,
+          error: 'Código inválido o expirado.',
+        });
+        return false;
+      }
+
+      const user = data.user;
+      const session = data.session;
+      if (!user || !session) {
+        set({
+          isLoading: false,
+          error: 'Código inválido o expirado.',
+        });
+        return false;
+      }
+
+      const tempPassword = get().tempRegistrationPassword;
+      if (!tempPassword) {
+        set({
+          isLoading: false,
+          error: 'No se encontró la contraseña temporal en memoria para desbloquear la bóveda.',
+        });
+        return false;
+      }
+
+      // 1. Utiliza tempRegistrationPassword para derivar localmente la vaultKey con PBKDF2 (manteniendo el flujo Zero-Knowledge).
+      const vaultKey = await deriveVaultKey(user.id, tempPassword);
+
+      // 2. Limpia inmediatamente tempRegistrationPassword = null.
+      // 3. Actualiza el estado con user, session, vaultKey e isAwaitingOtp = false.
+      // 4. El usuario pasa automáticamente al Dashboard.
+      set({
+        user,
+        session,
+        vaultKey,
+        tempRegistrationPassword: null,
+        otpEmail: null,
+        isAwaitingOtp: false,
+        pendingConfirmationEmail: null,
+        isLoading: false,
+        error: null,
+      });
+
+      return true;
+    } catch (cause) {
+      set({
+        isLoading: false,
+        error: toErrorMessage(cause, 'Código inválido o expirado.'),
+      });
+      return false;
+    }
+  },
+
+  resendSignUpOtp: async () => {
+    const email = get().otpEmail;
+    if (!email) {
+      set({ error: 'No hay un correo registrado para reenviar el código.' });
+      return false;
+    }
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      set({ error: null });
+      return true;
+    } catch (cause) {
+      set({
+        error: toErrorMessage(cause, 'No se pudo reenviar el código de verificación.'),
+      });
+      return false;
+    }
+  },
+
+  cancelOtpFlow: () => {
+    set({
+      otpEmail: null,
+      tempRegistrationPassword: null,
+      isAwaitingOtp: false,
+      error: null,
+    });
   },
 
   signIn: async (email, password) => {
@@ -394,6 +531,9 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         session,
         user: session?.user ?? null,
         pendingConfirmationEmail: session ? null : get().pendingConfirmationEmail,
+        isAwaitingOtp: session ? false : get().isAwaitingOtp,
+        otpEmail: session ? null : get().otpEmail,
+        tempRegistrationPassword: session ? null : get().tempRegistrationPassword,
       });
     });
 
