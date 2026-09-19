@@ -45,17 +45,25 @@ export interface Database {
           id: string;
           email: string | null;
           created_at: string;
+          /** Verificador PBKDF2-SHA256 (hex) de la contraseña de descarga. */
+          download_verifier: string | null;
+          /** Salt aleatorio (hex) usado para derivar `download_verifier`. */
+          download_salt: string | null;
         };
         Insert: {
           /** Debe coincidir con `auth.users.id` (política RLS `id = auth.uid()`). */
           id: string;
           email?: string | null;
           created_at?: string;
+          download_verifier?: string | null;
+          download_salt?: string | null;
         };
         Update: {
           id?: string;
           email?: string | null;
           created_at?: string;
+          download_verifier?: string | null;
+          download_salt?: string | null;
         };
         Relationships: [];
       };

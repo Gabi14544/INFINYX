@@ -43,6 +43,9 @@ const CIPHERTEXT_MIME = 'application/octet-stream';
 /** Número de versión asignado a la primera subida de un documento. */
 const FIRST_VERSION = 1;
 
+/** Límite máximo de versiones permitidas por documento lógico (v1..v3). */
+const MAX_VERSIONS = 3;
+
 /** Margen antes de revocar la object URL, para no abortar la descarga. */
 const OBJECT_URL_TTL_MS = 60_000;
 
@@ -206,8 +209,13 @@ export interface VaultActions {
   /** Carga `documents` + `document_versions` del usuario, más reciente primero. */
   fetchDocuments: () => Promise<void>;
   /**
-   * Pipeline completo: leer -> hashear -> cifrar -> subir -> registrar -> auditar.
-   * @returns El `id` del documento creado, o `null` si la operación falló.
+   * Pipeline completo: resolver documento por nombre -> leer -> hashear ->
+   * cifrar -> subir -> registrar versión -> auditar.
+   *
+   * Si `name` ya existe para el usuario se añade una versión secuencial
+   * (`version_number = total + 1`) hasta un máximo de 3; superado el límite
+   * falla con "Se ha alcanzado el límite máximo de 3 versiones…".
+   * @returns El `id` del documento creado o versionado, o `null` si falló.
    */
   uploadDocument: (file: File, vaultKey: CryptoKey) => Promise<string | null>;
   /**
@@ -275,14 +283,17 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
           'document_id',
           rows.map((row) => row.id),
         )
-        .order('version_number', { ascending: false });
+        // Orden cronológico: la historia de cada documento crece con `created_at`
+        // (desempate determinista por `version_number`).
+        .order('created_at', { ascending: true })
+        .order('version_number', { ascending: true });
 
       if (versionsError) {
         throw versionsError;
       }
 
-      // Agrupación por documento. Las versiones ya llegan en orden
-      // descendente, por lo que la primera de cada grupo es la más reciente.
+      // Agrupación por documento en orden cronológico ascendente, por lo que
+      // la última de cada grupo es la más reciente (`latestVersion`).
       const versionsByDocument = new Map<string, DocumentVersion[]>();
       for (const version of versionRows ?? []) {
         const bucket = versionsByDocument.get(version.document_id);
@@ -295,13 +306,14 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
 
       const documents: VaultDocument[] = rows.map((row) => {
         const versions = versionsByDocument.get(row.id) ?? [];
+        const latestVersion = versions.length > 0 ? (versions[versions.length - 1] ?? null) : null;
         return {
           id: row.id,
           name: row.name,
           mimeType: row.mime_type,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
-          latestVersion: versions[0] ?? null,
+          latestVersion,
           versionCount: versions.length,
         };
       });
@@ -325,6 +337,54 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
     try {
       const user = await requireUser();
 
+      // 0) Resolución del documento lógico por nombre (versionado por `name`
+      //    y `user_id`). Si ya existe, la subida se asocia al `document_id`
+      //    existente con el siguiente secuencial; si no, se crea uno nuevo.
+      const { data: existingDocs, error: lookupError } = await supabase
+        .from('documents')
+        .select('id, name')
+        .eq('user_id', user.id)
+        .eq('name', file.name)
+        .limit(1);
+
+      if (lookupError) {
+        throw lookupError;
+      }
+
+      const existingDocumentId = existingDocs?.[0]?.id ?? null;
+      let targetDocumentId: string;
+      let nextVersionNumber: number;
+      let isNewDocument = false;
+
+      if (existingDocumentId) {
+        const { data: existingVersions, error: versionsLookupError } = await supabase
+          .from('document_versions')
+          .select('version_number')
+          .eq('document_id', existingDocumentId)
+          .order('created_at', { ascending: true })
+          .order('version_number', { ascending: true });
+
+        if (versionsLookupError) {
+          throw versionsLookupError;
+        }
+
+        const versionCount = existingVersions?.length ?? 0;
+
+        if (versionCount >= MAX_VERSIONS) {
+          throw new Error(
+            'Se ha alcanzado el límite máximo de 3 versiones para este documento',
+          );
+        }
+
+        targetDocumentId = existingDocumentId;
+        // Secuencial: cantidad existente + 1 (v1 -> v2 -> v3).
+        nextVersionNumber = versionCount + 1;
+      } else {
+        targetDocumentId = window.crypto.randomUUID();
+        nextVersionNumber = FIRST_VERSION;
+        isNewDocument = true;
+      }
+
       // 1) Lectura del archivo en memoria.
       const plainBuffer = await file.arrayBuffer();
 
@@ -336,11 +396,12 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
       set({ uploadStatus: 'encrypting' });
       const { cipherBuffer, iv } = await encryptBuffer(plainBuffer, vaultKey);
 
-      // 4) Subida del ciphertext. El `documentId` se genera en cliente para
-      //    poder construir la ruta antes de existir la fila en `documents`.
+      // 4) Subida del ciphertext. Para documentos nuevos el `documentId` se
+      //    genera en cliente para construir la ruta antes de existir la fila;
+      //    para versiones adicionales se reutiliza el `document_id` existente
+      //    con el siguiente `vN.enc`.
       set({ uploadStatus: 'uploading' });
-      const documentId = window.crypto.randomUUID();
-      const storagePath = `${user.id}/${documentId}/v${FIRST_VERSION}.enc`;
+      const storagePath = `${user.id}/${targetDocumentId}/v${nextVersionNumber}.enc`;
       const mimeType = file.type.length > 0 ? file.type : CIPHERTEXT_MIME;
 
       const { error: storageError } = await supabase.storage
@@ -355,25 +416,34 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
       }
       uploadedPath = storagePath;
 
-      // 5) Registro transaccional: documento + versión inicial.
-      const { data: documentRow, error: documentError } = await supabase
-        .from('documents')
-        .insert({
-          id: documentId,
+      // 5) Registro transaccional: documento (sólo si es nuevo) + versión.
+      if (isNewDocument) {
+        const { error: documentError } = await supabase.from('documents').insert({
+          id: targetDocumentId,
           user_id: user.id,
           name: file.name,
           mime_type: mimeType,
-        })
-        .select('id')
-        .single();
+        });
 
-      if (documentError) {
-        throw documentError;
+        if (documentError) {
+          throw documentError;
+        }
+      } else {
+        // Refresca `updated_at` (y tipo) para que el catálogo ordene por
+        // actividad reciente tras cada nueva versión.
+        const { error: touchError } = await supabase
+          .from('documents')
+          .update({ mime_type: mimeType, updated_at: new Date().toISOString() })
+          .eq('id', targetDocumentId);
+
+        if (touchError) {
+          throw touchError;
+        }
       }
 
       const { error: versionError } = await supabase.from('document_versions').insert({
-        document_id: documentRow.id,
-        version_number: FIRST_VERSION,
+        document_id: targetDocumentId,
+        version_number: nextVersionNumber,
         storage_path: storagePath,
         sha256_hash: sha256Hash,
         iv,
@@ -383,19 +453,21 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
       });
 
       if (versionError) {
-        // Compensa la fila de `documents` para no dejar un documento sin
-        // ninguna versión descargable.
-        await supabase.from('documents').delete().eq('id', documentId);
+        if (isNewDocument) {
+          // Compensa la fila de `documents` para no dejar un documento sin
+          // ninguna versión descargable.
+          await supabase.from('documents').delete().eq('id', targetDocumentId);
+        }
         throw versionError;
       }
 
       uploadedPath = null; // Transacción consolidada: ya no hay que compensar.
 
       // 6) Auditoría (no bloqueante).
-      await writeAuditLog(user.id, documentId, 'UPLOAD', {
+      await writeAuditLog(user.id, targetDocumentId, 'UPLOAD', {
         file_name: file.name,
         mime_type: mimeType,
-        version_number: FIRST_VERSION,
+        version_number: nextVersionNumber,
         storage_path: storagePath,
         plaintext_size: file.size,
         ciphertext_size: cipherBuffer.byteLength,
@@ -407,7 +479,7 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
       // Refresca el catálogo para que la UI vea el documento recién creado.
       await get().fetchDocuments();
 
-      return documentId;
+      return targetDocumentId;
     } catch (cause) {
       if (uploadedPath) {
         await rollbackStorageObject(uploadedPath);

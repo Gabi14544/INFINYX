@@ -124,19 +124,28 @@ export interface AuthState {
   vaultKey: CryptoKey | null;
   /** Frase mnemónica de 12 palabras generada en el registro (sólo en RAM). */
   recoveryPhrase: string | null;
+  /**
+   * Email con confirmación pendiente tras `signUp` sin sesión.
+   * Mientras esté definido la UI debe mostrar el aviso de verificación
+   * y NO redirigir al dashboard (`user`/`session` quedan en `null`).
+   */
+  pendingConfirmationEmail: string | null;
   isLoading: boolean;
   error: string | null;
 }
 
 export interface AuthActions {
   /**
-   * Registra al usuario en Supabase Auth, deriva su `CryptoKey` inicial,
-   * genera la frase de recuperación y crea su fila en `profiles`.
+   * Registra al usuario en Supabase Auth, deriva su `CryptoKey` inicial y
+   * genera la frase de recuperación cuando hay sesión inmediata.
    *
-   * Si el proyecto tiene la confirmación por email activada, `signUp` no
-   * devuelve sesión; en ese caso la fila de `profiles` no puede escribirse
-   * todavía (RLS exige `auth.uid()`) y se creará de forma idempotente en el
-   * primer `signIn`.
+   * NO escribe en `profiles`: esa fila la crea el trigger PostgreSQL
+   * `on_auth_user_created` (SECURITY DEFINER) sobre `auth.users`.
+   *
+   * Si el proyecto exige confirmación por email, `signUp` no devuelve
+   * sesión; en ese caso NO se autentica al usuario (se deja `user` y
+   * `session` en `null`) y se expone `pendingConfirmationEmail` para que
+   * la UI muestre el aviso de verificación sin redirigir al dashboard.
    */
   signUp: (email: string, password: string) => Promise<void>;
   /** Inicia sesión y carga la `CryptoKey` derivada en memoria. */
@@ -159,6 +168,8 @@ export interface AuthActions {
   initSession: () => () => void;
   /** Borra la frase de recuperación de la memoria tras mostrarla al usuario. */
   clearRecoveryPhrase: () => void;
+  /** Borra el aviso de confirmación pendiente (p. ej. al cambiar de pestaña). */
+  clearPendingConfirmation: () => void;
   /** Limpia el último error registrado. */
   clearError: () => void;
 }
@@ -170,6 +181,7 @@ const INITIAL_STATE: AuthState = {
   session: null,
   vaultKey: null,
   recoveryPhrase: null,
+  pendingConfirmationEmail: null,
   isLoading: false,
   error: null,
 };
@@ -189,7 +201,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   ...INITIAL_STATE,
 
   signUp: async (email, password) => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, pendingConfirmationEmail: null });
 
     try {
       const { data, error } = await supabase.auth.signUp({ email, password });
@@ -202,28 +214,38 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         throw new Error('Supabase no devolvió el usuario tras el registro.');
       }
 
+      // Sin sesión => confirmación por email pendiente. No se autentica
+      // (user/session quedan en null), no se deriva clave ni se toca
+      // `profiles` — el trigger `on_auth_user_created` creará el perfil
+      // al confirmarse el alta. La UI muestra el aviso de verificación.
+      if (!data.session) {
+        set({
+          user: null,
+          session: null,
+          vaultKey: null,
+          recoveryPhrase: null,
+          pendingConfirmationEmail: user.email ?? email,
+          isLoading: false,
+          error: null,
+        });
+        return;
+      }
+
       // 1) Clave de bóveda: derivación local, jamás sale del navegador.
       const vaultKey = await deriveVaultKey(user.id, password);
 
       // 2) Frase de recuperación: se entrega al usuario, no se persiste.
       const recoveryPhrase = generateRecoveryPhrase();
 
-      // 3) Fila de perfil. Requiere sesión activa para satisfacer RLS.
-      if (data.session) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert({ id: user.id, email: user.email ?? email }, { onConflict: 'id' });
-
-        if (profileError) {
-          throw profileError;
-        }
-      }
+      // 3) Sin escritura manual en `profiles`: la crea el trigger
+      // `on_auth_user_created` (SECURITY DEFINER) sobre `auth.users`.
 
       set({
         user,
         session: data.session,
         vaultKey,
         recoveryPhrase,
+        pendingConfirmationEmail: null,
         isLoading: false,
         error: null,
       });
@@ -236,7 +258,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   },
 
   signIn: async (email, password) => {
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, pendingConfirmationEmail: null });
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -266,6 +288,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         session,
         vaultKey,
         recoveryPhrase: null,
+        pendingConfirmationEmail: null,
         isLoading: false,
         error: null,
       });
@@ -380,10 +403,12 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
       // INITIAL_SESSION | SIGNED_IN | TOKEN_REFRESHED | USER_UPDATED |
       // PASSWORD_RECOVERY: se sincroniza la sesión preservando la `vaultKey`
-      // ya derivada en esta pestaña.
+      // ya derivada en esta pestaña. Si aparece sesión válida, la
+      // confirmación pendiente queda resuelta.
       set({
         session,
         user: session?.user ?? null,
+        pendingConfirmationEmail: session ? null : get().pendingConfirmationEmail,
         isLoading: false,
       });
     });
@@ -404,6 +429,10 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
   clearRecoveryPhrase: () => {
     set({ recoveryPhrase: null });
+  },
+
+  clearPendingConfirmation: () => {
+    set({ pendingConfirmationEmail: null });
   },
 
   clearError: () => {

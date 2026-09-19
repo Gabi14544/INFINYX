@@ -237,6 +237,87 @@ export async function computeSHA256(data: ArrayBuffer): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Contraseña de descarga (verificador PBKDF2-SHA256, sólo metadatos públicos)
+// ---------------------------------------------------------------------------
+//
+// La "contraseña de descarga" es una compuerta de autorización adicional,
+// independiente de la `vaultKey` AES-GCM que cifra/descifra los blobs.
+// En `profiles` sólo se persisten `download_salt` (hex, público) y
+// `download_verifier` (hex del hash derivado, público). La contraseña en
+// claro vive ÚNICAMENTE en `useDownloadAuthStore` (RAM, sin `persist`).
+
+/** Iteraciones PBKDF2 para el verificador de descarga (>= mínimo OWASP). */
+export const DOWNLOAD_VERIFIER_ITERATIONS = 100_000;
+
+/** Longitud de la clave derivada del verificador, en bits (32 bytes). */
+const DOWNLOAD_VERIFIER_KEY_BITS = 256;
+
+/** Longitud por defecto del salt de descarga, en bytes (32 bytes = 64 hex). */
+const DOWNLOAD_SALT_BYTES = 32;
+
+/**
+ * Genera un salt aleatorio criptográficamente seguro en hexadecimal.
+ */
+export function generateDownloadSaltHex(byteLength: number = DOWNLOAD_SALT_BYTES): string {
+  if (!Number.isInteger(byteLength) || byteLength <= 0) {
+    throw new Error('generateDownloadSaltHex: byteLength debe ser un entero positivo.');
+  }
+  const bytes = new Uint8Array(byteLength);
+  window.crypto.getRandomValues(bytes);
+  return bufferToHex(bytes.buffer);
+}
+
+/**
+ * Deriva el verificador hex de una contraseña de descarga con PBKDF2-SHA256.
+ *
+ * Usa `deriveBits` (no `deriveKey`) porque aquí SÍ necesitamos comparar el
+ * material derivado contra `profiles.download_verifier`.
+ */
+export async function deriveDownloadVerifier(
+  password: string,
+  saltHex: string,
+): Promise<string> {
+  if (password.length === 0) {
+    throw new Error('deriveDownloadVerifier: la contraseña no puede estar vacía.');
+  }
+  const saltBuffer = hexToBuffer(saltHex.trim().toLowerCase());
+
+  const baseKey = await window.crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits'],
+  );
+
+  const bits = await window.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: new Uint8Array(saltBuffer),
+      iterations: DOWNLOAD_VERIFIER_ITERATIONS,
+      hash: HASH_ALGORITHM,
+    },
+    baseKey,
+    DOWNLOAD_VERIFIER_KEY_BITS,
+  );
+
+  return bufferToHex(bits);
+}
+
+/**
+ * Comparación de cadenas en tiempo constante (sobre hex del verificador)
+ * para evitar filtrar por timing la posición del primer byte distinto.
+ */
+export function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+// ---------------------------------------------------------------------------
 // Frase de recuperación (diccionario mnemónico BIP-39, inglés)
 // ---------------------------------------------------------------------------
 

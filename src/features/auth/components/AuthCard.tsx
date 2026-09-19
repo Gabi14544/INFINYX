@@ -9,6 +9,7 @@ import {
   KeyRound,
   Loader2,
   Lock,
+  MailCheck,
   ShieldCheck,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -28,7 +29,9 @@ export default function AuthCard() {
     isLoading,
     error,
     recoveryPhrase,
+    pendingConfirmationEmail,
     clearRecoveryPhrase,
+    clearPendingConfirmation,
     clearError,
   } = useAuthStore();
 
@@ -57,6 +60,7 @@ export default function AuthCard() {
   const switchTab = (next: Tab) => {
     setTab(next);
     setCopied(false);
+    clearPendingConfirmation();
     clearError();
   };
 
@@ -127,6 +131,21 @@ export default function AuthCard() {
               >
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span className="break-words">{error}</span>
+              </div>
+            )}
+
+            {pendingConfirmationEmail && !error && (
+              <div
+                role="status"
+                className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-3 text-sm text-emerald-200"
+              >
+                <MailCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                <span className="break-words">
+                  Cuenta creada. Te hemos enviado un correo de confirmación a{' '}
+                  <strong>{pendingConfirmationEmail}</strong>. Debes
+                  confirmarlo antes de entrar: revisa tu bandeja y luego
+                  inicia sesión. Aún no has accedido al dashboard.
+                </span>
               </div>
             )}
 

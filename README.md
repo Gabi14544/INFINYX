@@ -32,6 +32,8 @@
 | Integridad | Doble capa: tag de autenticación AES-GCM + verificación SHA-256 del texto plano tras descifrar |
 | Aislamiento multitenant | Row Level Security (RLS) estricto por `auth.uid()` en todas las tablas y bucket privado por usuario |
 | Custodia de claves | `CryptoKey` no extraíble (`extractable: false`), exclusivamente en memoria RAM (Zustand, sin persistencia) |
+| Contraseña de descarga | Compuerta de autorización por descarga: verificador PBKDF2-SHA-256 (100.000 iteraciones) en `profiles`, contraseña en claro sólo en RAM (`useDownloadAuthStore`, sin `persist`) |
+| Acciones por archivo | Exactamente 2: 1) "Descargar archivo" (gateada por la contraseña en RAM) y 2) "Visualizar" (hover/popover con tipo, SHA-256 completa, tamaño y fecha de custodia) |
 | Recuperación soberana | Frase mnemónica de 12 palabras (diccionario oficial BIP-39, 2048 palabras), generada con `crypto.getRandomValues` sin sesgo de módulo |
 | Trazabilidad | Bitácora `audit_logs` con eventos `UPLOAD`, `DOWNLOAD_DECRYPT` e `INTEGRITY_FAILURE` |
 | Cero dependencias cripto | 100 % Web Crypto API nativa. Prohibido `crypto-js`, `bcrypt` y cualquier librería de terceros para criptografía (ver `CLAUDE.MD`) |
@@ -132,6 +134,17 @@ Registro / Login / Desbloqueo
 - Es intencionalmente síncrona (no necesita `subtle`) y genera cada palabra de forma independiente: aquí actúa como **secreto de recuperación de bóveda**, no como semilla determinista de wallet, por lo que no se deriva entropía con checksum BIP-39 completo.
 - La frase vive **sólo en RAM** (`recoveryPhrase`), se muestra una única vez con advertencia explícita ("el servidor no puede recuperarla") y debe limpiarse con `clearRecoveryPhrase()` en cuanto la UI termina de mostrarla. No existe columna para ella en base de datos, por diseño.
 
+### 3.6. Contraseña de descarga: verificador PBKDF2-SHA-256 + secreto sólo en RAM
+
+> Añadido en la iteración "Contraseña de Descarga en Memoria RAM". Es una **compuerta de autorización** independiente de la `vaultKey`: el descifrado sigue usando AES-GCM-256; la contraseña de descarga sólo decide *si* se ejecuta la descarga.
+
+`generateDownloadSaltHex() → hex` / `deriveDownloadVerifier(password, saltHex) → hex` / `timingSafeEqualHex(a, b)` (en `vaultCrypto.ts`):
+
+- **Creación:** salt aleatorio de 32 bytes (`crypto.getRandomValues`, 64 chars hex) + `PBKDF2-SHA-256, 100.000 iteraciones, 256 bits` vía `subtle.deriveBits` (no `deriveKey`: aquí sí se necesita comparar el material derivado). Se persisten **sólo** `profiles.download_salt` y `profiles.download_verifier` (ambos hex públicos por diseño; el salt no es secreto, el verificador no permite recuperar la contraseña).
+- **Verificación:** se re-deriva con el salt guardado y se compara con el verificador en **tiempo constante** (`timingSafeEqualHex`) para no filtrar por timing la posición del primer byte distinto.
+- **Custodia:** la contraseña en claro vive **únicamente** en `useDownloadAuthStore.downloadSessionPassword` (Zustand **sin** middleware `persist`: jamás toca `localStorage`, `sessionStorage`, cookies ni IndexedDB). Al recargar la pestaña vuelve a `null` automáticamente (el módulo se re-evalúa); al cerrar sesión el dashboard la destruye con `clearDownloadSessionPassword()` antes de la llamada de red, igual que la `vaultKey`.
+- A diferencia del salt determinista de la `vaultKey` (derivado del `userId` por limitación del esquema original), este salt **sí es aleatorio por usuario** y migra el diseño hacia el objetivo del roadmap (`profiles.vault_salt`).
+
 ---
 
 ## 4. Arquitectura de software (Feature-Driven)
@@ -157,10 +170,18 @@ src/
 │
 ├── features/vault/
 │   ├── components/
-│   │   ├── VaultDashboard.tsx    # Header corporativo + tabla de documentos + estado vacío
+│   │   ├── VaultDashboard.tsx    # Header corporativo + tabla + flujo de descarga gateado
+│   │   │                         # (con contraseña en RAM → directa; sin ella → modal)
+│   │   ├── DocumentRow.tsx       # Fila con EXACTAMENTE 2 acciones: Descargar archivo +
+│   │   │                         # Visualizar (hover/popover: tipo, SHA-256 completa,
+│   │   │                         # tamaño, fecha de custodia). Sin botón copiar-hash.
+│   │   ├── DownloadAuthModal.tsx # Crear / Ingresar contraseña de descarga (ver 3.6):
+│   │   │                         # consulta profiles, PBKDF2, guarda en RAM, onAuthenticated
 │   │   └── FileUploadModal.tsx   # Drag & Drop + pipeline visual reading→hashing→
 │   │                             # encrypting→uploading→done
-│   └── stores/useVaultStore.ts   # Catálogo + pipeline subir/descifrar + auditoría best-effort
+│   └── stores/
+│       ├── useVaultStore.ts          # Catálogo + pipeline subir/descifrar + auditoría best-effort
+│       └── useDownloadAuthStore.ts   # downloadSessionPassword SÓLO en RAM, sin persist
 │
 ├── features/audit/               # (reservado) UI de auditoría; el registro lo emite useVaultStore
 │
@@ -201,24 +222,39 @@ Paso a paso (`uploadDocument(file, vaultKey)` en `useVaultStore.ts`):
 6. **Auditoría no bloqueante** (`UPLOAD` con tamaños plano/cifrado, hash y ruta): un fallo aquí sólo se registra en consola; jamás invalida una operación criptográfica ya consolidada.
 7. `uploadStatus: 'done'` y refresco del catálogo vía `fetchDocuments()`.
 
-### 4.3. Flujo de datos: descarga
+### 4.3. Flujo de datos: descarga (gateada por la contraseña en RAM)
 
 ```mermaid
 flowchart LR
+    G{downloadSessionPassword<br/>en RAM?} -->|sí| A
+    G -->|no| M[DownloadAuthModal<br/>crear / ingresar + PBKDF2]
+    M -->|onAuthenticated| A
     A[Storage download<br/>blob .enc] --> B[decryptBuffer<br/>en RAM, tag GCM]
     B --> C[computeSHA256<br/>recalculado]
     C -->|coincide| D[audit DOWNLOAD_DECRYPT<br/>+ Blob URL temporal 60s]
     C -->|difiere| E[audit INTEGRITY_FAILURE<br/>descarga abortada]
 ```
 
-Paso a paso (`downloadAndDecrypt(descriptor, vaultKey)`):
+Paso a paso (`VaultDashboard.handleDownload` + `downloadAndDecrypt(descriptor, vaultKey)`):
 
-1. Descarga del blob cifrado desde `versionData.storagePath`.
-2. Descifrado en RAM; AES-GCM rechaza automáticamente claves incorrectas o ciphertext alterado.
-3. Verificación SHA-256 contra `document_versions.sha256_hash`. Ante discrepancia: evento `INTEGRITY_FAILURE` y error explícito al usuario.
-4. Evento `DOWNLOAD_DECRYPT` y entrega al disco mediante `<a download>` con object URL revocada a los 60 s (`OBJECT_URL_TTL_MS`), para no abortar la descarga ni filtrar URLs persistentes.
+1. **Compuerta de autorización:** si `useDownloadAuthStore.downloadSessionPassword` está en RAM, se procede directo; si es `null`, se encola el documento (`pendingDoc`) y se abre `DownloadAuthModal`. Tras `onAuthenticated`, se ejecuta la descarga del archivo encolado.
+2. Descarga del blob cifrado desde `versionData.storagePath`.
+3. Descifrado en RAM; AES-GCM rechaza automáticamente claves incorrectas o ciphertext alterado.
+4. Verificación SHA-256 contra `document_versions.sha256_hash`. Ante discrepancia: evento `INTEGRITY_FAILURE` y error explícito al usuario.
+5. Evento `DOWNLOAD_DECRYPT` y entrega al disco mediante `<a download>` con object URL revocada a los 60 s (`OBJECT_URL_TTL_MS`), para no abortar la descarga ni filtrar URLs persistentes.
 
-### 4.4. Endurecimiento propuesto: modo Solo Depósito (roadmap)
+> La contraseña de descarga **no descifra**: sólo autoriza. El descifrado usa siempre la `vaultKey` AES-GCM de `useAuthStore`.
+
+### 4.4. Acciones por archivo: exactamente 2 (sin redundancias)
+
+`DocumentRow.tsx` expone **únicamente** estas dos opciones en la columna de acciones (el antiguo botón de copiar hash se eliminó; la huella completa vive en el popover):
+
+| # | Acción | Disparador | Efecto |
+|---|---|---|---|
+| 1 | **Descargar archivo** | Botón con icono `Download` | Ejecuta el flujo gateado de [4.3](#43-flujo-de-datos-descarga-gateada-por-la-contraseña-en-ram) |
+| 2 | **Visualizar** | Hover sobre el botón `Eye` **o** sobre el nombre del archivo → tooltip/popover flotante | Cuadro con previsualización de metadatos: tipo de archivo (MIME), huella SHA-256 **completa**, tamaño y fecha de custodia (+ versión). El contenido en claro nunca se expone sin descargar + descifrar en RAM |
+
+### 4.5. Endurecimiento propuesto: modo Solo Depósito (roadmap)
 
 > **Estado: propuesta de diseño, no implementado.** El catálogo actual permite a cada propietario subir y descargar sus propios documentos. Para escenarios de custodia receptora (p. ej. un notario que recibe pruebas de clientes sin que estos puedan leer ni borrar lo ajeno), el diseño prevé un **modo Solo Depósito**: otorgar a un rol/sesión básica permiso de `INSERT` en `documents`/`document_versions` y de subida al prefijo de Storage correspondiente, **denegando** `SELECT` sobre versiones ajenas, `DOWNLOAD` de blobs y `DELETE`. Se implementa íntegramente con políticas RLS y de Storage (sin cambios de cliente), siguiendo el patrón de la [sección 5.3](#53-row-level-security-referencia). Consta como trabajo futuro en la [sección 7](#7-operación-segura-limitaciones-conocidas-y-roadmap).
 
@@ -230,7 +266,14 @@ Esquema `public` real, verificado contra el proyecto Supabase y tipado en `src/s
 
 ### 5.1. Tablas
 
-**`profiles`** — identidad pública mínima. `id uuid PK` (= `auth.users.id`), `email text`, `created_at timestamptz`. Se crea por `upsert` idempotente en `signUp` (sólo con sesión activa, pues RLS lo exige) y en `signIn` (cubre el flujo con confirmación por email, donde el registro no devuelve sesión). Jamás contiene material criptográfico.
+**`profiles`** — identidad pública mínima. `id uuid PK` (= `auth.users.id`), `email text`, `created_at timestamptz`, más **`download_verifier text NULL`** (hex PBKDF2-SHA-256 de la contraseña de descarga) y **`download_salt text NULL`** (salt aleatorio hex). Se crea por `upsert` idempotente en `signUp`/`signIn`; el verificador se escribe después vía `update` desde `DownloadAuthModal` (política `profiles_owner` ya lo permite al ser el dueño). Jamás contiene passphrases, claves ni texto plano: sólo el verificador y el salt, inútiles sin la contraseña.
+
+```sql
+-- Migración requerida para la contraseña de descarga:
+alter table profiles
+  add column if not exists download_verifier text,
+  add column if not exists download_salt text;
+```
 
 **`documents`** — documento lógico (cabecera). `id uuid PK` (generado en cliente), `user_id uuid`, `name text`, `mime_type text` (tipo real para la descarga; el blob viaja como opaco), `created_at` / `updated_at`. Listado ordenado por `updated_at` descendente.
 
@@ -333,9 +376,11 @@ El proyecto compila en modo estricto: `strict`, `noUncheckedIndexedAccess`, `noU
 
 1. Crear el proyecto en Supabase y anotar URL + `anon key`.
 2. Crear las tablas `profiles`, `documents`, `document_versions`, `audit_logs` según [5.1](#51-tablas) (tipos exactos en `src/shared/types/database.ts`).
-3. Crear el bucket privado `vault_files`.
-4. Aplicar las políticas RLS y de Storage de [5.3](#53-row-level-security-referencia).
-5. Configurar `.env.local`, ejecutar `pnpm run dev`, registrar una cuenta y subir el primer documento: el modal mostrará el pipeline `reading → hashing → encrypting → uploading → done`.
+3. Aplicar la migración de la contraseña de descarga (`download_verifier` / `download_salt` en `profiles`, ver [5.1](#51-tablas)).
+4. Crear el bucket privado `vault_files`.
+5. Aplicar las políticas RLS y de Storage de [5.3](#53-row-level-security-referencia).
+6. Configurar `.env.local`, ejecutar `pnpm run dev`, registrar una cuenta y subir el primer documento: el modal mostrará el pipeline `reading → hashing → encrypting → uploading → done`.
+7. Pulsar "Descargar archivo": la primera vez se abre `DownloadAuthModal` para crear la contraseña de descarga; las siguientes descargas de la misma pestaña son directas (vive en RAM).
 
 ---
 
@@ -344,20 +389,21 @@ El proyecto compila en modo estricto: `strict`, `noUncheckedIndexedAccess`, `noU
 **Notas operativas**
 
 - Servir siempre bajo HTTPS: sin contexto seguro, `crypto.subtle` no existe y el módulo criptográfico debe negarse a operar.
-- El cierre de sesión destruye la clave en RAM de inmediato; la expiración o revocación de sesión (`SIGNED_OUT`) hace lo mismo. Tras recargar la pestaña, desbloquear de nuevo es obligatorio, no opcional.
+- El cierre de sesión destruye la clave **y** la contraseña de descarga en RAM de inmediato; la expiración o revocación de sesión (`SIGNED_OUT`) hace lo mismo con la clave. Tras recargar la pestaña, desbloquear de nuevo es obligatorio y la contraseña de descarga vuelve a `null` (se solicita una vez por pestaña).
 - La auditoría del lado cliente es best-effort por diseño (nunca invalida una operación consolidada); la fuente no repudiable debe ser un trigger en Postgres.
 - Los blobs huérfanos se compensan automáticamente (rollback en Storage y borrado de la fila de documento sin versiones).
 
 **Limitaciones conocidas**
 
-- El salt PBKDF2 es determinista por usuario (derivado del `userId`), no aleatorio por bóveda: conserva unicidad por cuenta pero pierde aleatoriedad por bóveda. Migración prevista a `profiles.vault_salt` con 32 bytes aleatorios.
+- El salt PBKDF2 de la `vaultKey` es determinista por usuario (derivado del `userId`), no aleatorio por bóveda: conserva unicidad por cuenta pero pierde aleatoriedad por bóveda. Migración prevista a `profiles.vault_salt` con 32 bytes aleatorios. (El verificador de la contraseña de descarga **sí** usa ya salt aleatorio de 32 bytes.)
 - La frase de recuperación es un secreto de un solo uso mostrado una vez: si el usuario la pierde y olvida su passphrase, **los documentos son irrecuperables por diseño** (no existe "restablecer contraseña" que preserve el acceso: una passphrase nueva deriva una clave distinta).
+- La contraseña de descarga no tiene flujo de "olvido/recuperación": si se pierde, no hay verificador alternativo; requiere rotación manual (nuevo `update` de `download_verifier`/`download_salt`). Está pendiente una pantalla de rotación explícita.
 - Versionado actual: primera versión (`v1`) por documento; nuevas versiones (`v2+`), borrado seguro con política de retención y visor de auditoría en `features/audit` están pendientes.
 
 **Roadmap**
 
 1. `profiles.vault_salt` aleatorio + versionado del KDF (aumentar iteraciones PBKDF2 / migrar a Argon2id vía componente dedicado cuando Web Crypto lo estandarice).
 2. Subidas v2+ con historial de versiones y restauración.
-3. Modo Solo Depósito (ver [4.4](#44-endurecimiento-propuesto-modo-solo-depósito-roadmap)).
+3. Modo Solo Depósito (ver [4.5](#45-endurecimiento-propuesto-modo-solo-depósito-roadmap)).
 4. Trigger `AFTER INSERT` en `document_versions` para auditoría servidora no repudiable.
 5. Compartición entre tenants mediante cifrado híbrido (clave de documento envuelta con la clave pública del receptor; el servidor sigue ciego).

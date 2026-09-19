@@ -1,10 +1,27 @@
+/**
+ * VaultDashboard.tsx
+ * ---------------------------------------------------------------------------
+ * Dashboard de la bóveda con EXACTAMENTE 2 acciones por archivo
+ * (ver `DocumentRow.tsx`):
+ *   1) "Descargar archivo" (flujo gateado por la contraseña en RAM).
+ *   2) "Visualizar" (hover/tooltip/popover con previsualización).
+ *
+ * Flujo de descarga
+ * -----------------
+ * - Si `downloadSessionPassword` ya está en RAM, se descifra y descarga
+ *   directamente con la `vaultKey` AES-GCM.
+ * - Si es `null`, se abre `DownloadAuthModal`; tras validarse, el callback
+ *   `onAuthenticated` ejecuta la descarga del archivo pendiente.
+ * - La contraseña de descarga es sólo una compuerta de autorización: el
+ *   descifrado sigue usando la `vaultKey` (Zero-Knowledge intacto).
+ * - Al cerrar sesión se destruye la contraseña en RAM; al recargar la
+ *   página vuelve a `null` automáticamente (el store no usa `persist`).
+ * ---------------------------------------------------------------------------
+ */
+
 import { useEffect, useState } from 'react';
 import {
   AlertTriangle,
-  Check,
-  Copy,
-  Download,
-  FileText,
   FolderOpen,
   Loader2,
   LogOut,
@@ -13,129 +30,17 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../auth/stores/useAuthStore';
 import { toVersionDescriptor, useVaultStore } from '../stores/useVaultStore';
+import { useDownloadAuthStore } from '../stores/useDownloadAuthStore';
 import type { VaultDocument } from '../../../shared/types';
+import DocumentRow from './DocumentRow';
+import DownloadAuthModal from './DownloadAuthModal';
 import FileUploadModal from './FileUploadModal';
-
-function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '—';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('es-ES', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-function shortHash(hash: string): string {
-  return hash.length > 10 ? hash.slice(0, 10) : hash;
-}
-
-function DocumentRow({
-  doc,
-  downloading,
-  onDownload,
-}: {
-  doc: VaultDocument;
-  downloading: string | null;
-  onDownload: (doc: VaultDocument) => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const version = doc.latestVersion;
-  const isBusy = downloading === doc.id;
-
-  const handleCopy = async () => {
-    if (!version) return;
-    try {
-      await navigator.clipboard.writeText(version.sha256_hash);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Sin portapapeles: se mantiene el hash visible para copia manual.
-    }
-  };
-
-  return (
-    <tr className="border-t border-zinc-800 transition hover:bg-slate-800/40">
-      <td className="px-4 py-3.5">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 ring-1 ring-blue-500/20">
-            <FileText className="h-4 w-4 text-blue-400" />
-          </span>
-          <span
-            className="max-w-[220px] truncate text-sm font-medium text-white"
-            title={doc.name}
-          >
-            {doc.name}
-          </span>
-        </div>
-      </td>
-      <td className="px-4 py-3.5">
-        <span className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-800 px-2 py-0.5 font-mono text-xs text-zinc-300">
-          v{version?.version_number ?? '—'}
-        </span>
-      </td>
-      <td className="px-4 py-3.5">
-        {version ? (
-          <span className="inline-flex items-center gap-1.5 font-mono text-xs text-zinc-400">
-            {shortHash(version.sha256_hash)}…
-            <button
-              type="button"
-              onClick={handleCopy}
-              aria-label={`Copiar huella SHA-256 de ${doc.name}`}
-              title={version.sha256_hash}
-              className="rounded p-1 text-zinc-500 transition hover:bg-zinc-800 hover:text-emerald-400"
-            >
-              {copied ? (
-                <Check className="h-3.5 w-3.5 text-emerald-400" />
-              ) : (
-                <Copy className="h-3.5 w-3.5" />
-              )}
-            </button>
-          </span>
-        ) : (
-          <span className="text-xs text-zinc-600">sin versión</span>
-        )}
-      </td>
-      <td className="px-4 py-3.5 text-sm text-zinc-400">
-        {version ? formatSize(version.file_size) : '—'}
-      </td>
-      <td className="px-4 py-3.5 text-sm text-zinc-400">
-        {version ? formatDate(version.created_at) : formatDate(doc.createdAt)}
-      </td>
-      <td className="px-4 py-3.5 text-right">
-        <button
-          type="button"
-          onClick={() => onDownload(doc)}
-          disabled={!version || isBusy}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isBusy ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Descifrando…
-            </>
-          ) : (
-            <>
-              <Download className="h-3.5 w-3.5" />
-              Descargar y Descifrar
-            </>
-          )}
-        </button>
-      </td>
-    </tr>
-  );
-}
 
 export default function VaultDashboard() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [pendingDoc, setPendingDoc] = useState<VaultDocument | null>(null);
 
   const user = useAuthStore((s) => s.user);
   const vaultKey = useAuthStore((s) => s.vaultKey);
@@ -149,6 +54,9 @@ export default function VaultDashboard() {
   const clearError = useVaultStore((s) => s.clearError);
   const resetVault = useVaultStore((s) => s.reset);
 
+  const downloadSessionPassword = useDownloadAuthStore((s) => s.downloadSessionPassword);
+  const clearDownloadSessionPassword = useDownloadAuthStore((s) => s.clearDownloadSessionPassword);
+
   useEffect(() => {
     if (vaultKey) {
       void fetchDocuments();
@@ -157,7 +65,8 @@ export default function VaultDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vaultKey]);
 
-  const handleDownload = async (doc: VaultDocument) => {
+  /** Ejecuta el pipeline inverso (descargar -> descifrar -> validar -> entregar). */
+  const runDownload = async (doc: VaultDocument) => {
     const descriptor = toVersionDescriptor(doc);
     if (!descriptor || !vaultKey || downloadingId) return;
     setDownloadingId(doc.id);
@@ -166,7 +75,40 @@ export default function VaultDashboard() {
     setDownloadingId(null);
   };
 
+  /**
+   * Pulsación de "Descargar archivo":
+   * - Con contraseña en RAM -> descarga directa.
+   * - Sin ella -> se encola el documento y se abre el modal de seguridad.
+   */
+  const handleDownload = (doc: VaultDocument) => {
+    if (downloadingId) return;
+    if (downloadSessionPassword !== null) {
+      void runDownload(doc);
+      return;
+    }
+    setPendingDoc(doc);
+    setAuthModalOpen(true);
+  };
+
+  /** Tras validarse en el modal, descarga el archivo que quedó encolado. */
+  const handleAuthenticated = () => {
+    setAuthModalOpen(false);
+    const target = pendingDoc;
+    setPendingDoc(null);
+    if (target) {
+      void runDownload(target);
+    }
+  };
+
+  const handleAuthModalClose = () => {
+    setAuthModalOpen(false);
+    setPendingDoc(null);
+  };
+
   const handleSignOut = async () => {
+    // La contraseña de descarga se destruye ANTES de la llamada de red,
+    // igual que la `vaultKey` en `useAuthStore.signOut`.
+    clearDownloadSessionPassword();
     resetVault();
     await signOut();
   };
@@ -232,6 +174,14 @@ export default function VaultDashboard() {
             Proteger Nuevo Documento
           </button>
         </div>
+
+        {downloadSessionPassword === null && documents.length > 0 && (
+          <p className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3.5 py-2.5 text-xs leading-relaxed text-amber-300">
+            Las descargas requieren tu contraseña de descarga: se solicitará
+            una vez por pestaña y vivirá sólo en la RAM hasta recargar o
+            cerrar sesión.
+          </p>
+        )}
 
         {error && (
           <div
@@ -326,6 +276,11 @@ export default function VaultDashboard() {
       </main>
 
       <FileUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
+      <DownloadAuthModal
+        open={authModalOpen}
+        onClose={handleAuthModalClose}
+        onAuthenticated={handleAuthenticated}
+      />
     </div>
   );
 }

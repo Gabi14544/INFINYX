@@ -161,7 +161,10 @@ export default function App() {
     return <BootSplash />;
   }
 
-  if (!user) {
+  // Sin usuario o sin sesión (p. ej. registro con confirmación por email
+  // pendiente) se permanece en AuthCard: nunca se redirige al dashboard
+  // antes de tiempo.
+  if (!user || !session) {
     return <AuthCard />;
   }
 
