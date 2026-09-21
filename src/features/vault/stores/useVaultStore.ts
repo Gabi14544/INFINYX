@@ -117,6 +117,17 @@ async function writeAuditLog(
     });
 
     if (error) {
+      // Si la clave foránea a documents falla (p. ej. al registrar DELETE tras eliminar la fila),
+      // reintentamos con document_id: null pero manteniendo los detalles completos.
+      if (documentId && (error.code === '23503' || error.message.includes('foreign key'))) {
+        await supabase.from('audit_logs').insert({
+          user_id: userId,
+          document_id: null,
+          action,
+          details,
+        });
+        return;
+      }
       console.warn(`[audit_logs] No se pudo registrar la acción "${action}":`, error.message);
     }
   } catch (cause) {
@@ -227,6 +238,16 @@ export interface VaultActions {
     versionData: VaultVersionDescriptor,
     vaultKey: CryptoKey,
   ) => Promise<boolean>;
+  /**
+   * Eliminación segura de un documento y sus versiones asociadas:
+   * a) Obtiene todas las versiones para conocer sus storage_path.
+   * b) Elimina los blobs .enc de Supabase Storage.
+   * c) Elimina el registro de la tabla "documents" (cascada en document_versions).
+   * d) Registra en la bitácora "audit_logs" la acción "DELETE".
+   * e) Actualiza inmediatamente el estado local de documentos en el store.
+   * @returns `true` si el documento fue eliminado con éxito.
+   */
+  deleteDocument: (documentId: string) => Promise<boolean>;
   /** Devuelve `uploadStatus` a `idle`. */
   resetUploadStatus: () => void;
   /** Limpia el último error registrado. */
@@ -558,6 +579,74 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
           cause,
           'No se pudo descargar ni descifrar el documento. Verifica que la bóveda esté desbloqueada con la passphrase correcta.',
         ),
+      });
+      return false;
+    }
+  },
+
+  deleteDocument: async (documentId: string) => {
+    set({ isLoading: true, error: null });
+
+    try {
+      const user = await requireUser();
+      const targetDoc = get().documents.find((doc) => doc.id === documentId);
+
+      // a) Obtiene todas las versiones del documento para conocer sus storage_path.
+      const { data: versions, error: versionsError } = await supabase
+        .from('document_versions')
+        .select('storage_path')
+        .eq('document_id', documentId);
+
+      if (versionsError) {
+        throw versionsError;
+      }
+
+      // b) Elimina los blobs .enc correspondientes de Supabase Storage.
+      const storagePaths = (versions ?? [])
+        .map((version) => version.storage_path)
+        .filter((path): path is string => typeof path === 'string' && path.length > 0);
+
+      if (storagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from(VAULT_BUCKET)
+          .remove(storagePaths);
+
+        if (storageError) {
+          console.warn('[vault] Error al eliminar blobs de Storage:', storageError.message);
+        }
+      }
+
+      // c) Elimina el registro de la tabla "documents" (las versiones en "document_versions" se eliminarán en cascada).
+      const { error: deleteDocError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('id', documentId)
+        .eq('user_id', user.id);
+
+      if (deleteDocError) {
+        throw deleteDocError;
+      }
+
+      // d) Registra en la tabla "audit_logs" la acción "DELETE" con el user_id y document_id.
+      await writeAuditLog(user.id, documentId, 'DELETE', {
+        file_name: targetDoc?.name ?? null,
+        storage_paths_removed: storagePaths,
+        version_count: storagePaths.length,
+        deleted_at: new Date().toISOString(),
+      });
+
+      // e) Actualiza el estado local de documentos en el store para reflejar la eliminación inmediatamente.
+      set((state) => ({
+        documents: state.documents.filter((doc) => doc.id !== documentId),
+        isLoading: false,
+        error: null,
+      }));
+
+      return true;
+    } catch (cause) {
+      set({
+        isLoading: false,
+        error: toErrorMessage(cause, 'No se pudo eliminar el documento de la bóveda.'),
       });
       return false;
     }

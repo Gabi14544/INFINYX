@@ -1,7 +1,7 @@
 /**
  * DocumentRow.tsx
  * ---------------------------------------------------------------------------
- * Fila del catálogo con EXACTAMENTE 2 acciones por archivo:
+ * Fila del catálogo con acciones por archivo:
  *
  *   1) "Descargar archivo": botón con icono que ejecuta el flujo gateado
  *      por la contraseña de descarga en RAM (vía `onDownload` del dashboard).
@@ -9,15 +9,17 @@
  *      (`DocumentPreviewModal`) fuera del árbol de la tabla (portal a body),
  *      mostrando metadatos: tipo de archivo, huella SHA-256 completa con copiado,
  *      tamaño, versión y fecha de custodia.
+ *   3) "Eliminar": botón destructivo con icono Trash que abre `DeleteDocumentModal`
+ *      (portal a body) para confirmación irreversible y autorización en RAM.
  *
- * No existe ninguna otra acción por archivo. No hay popovers atrapados dentro
- * de <td> que causen barras de scroll o desbordamientos.
+ * No hay popovers atrapados dentro de <td> que causen barras de scroll o desbordamientos.
  * ---------------------------------------------------------------------------
  */
 
 import { useState } from 'react';
-import { Download, Eye, FileText, Loader2 } from 'lucide-react';
+import { Download, Eye, FileText, Loader2, Trash2 } from 'lucide-react';
 import type { VaultDocument } from '../../../shared/types';
+import DeleteDocumentModal from './DeleteDocumentModal';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import { formatDate, formatSize, shortHash } from '../utils/formatters';
 
@@ -29,6 +31,7 @@ interface DocumentRowProps {
 
 export default function DocumentRow({ doc, downloading, onDownload }: DocumentRowProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const version = doc.latestVersion;
   const isBusy = downloading === doc.id;
 
@@ -98,7 +101,7 @@ export default function DocumentRow({ doc, downloading, onDownload }: DocumentRo
               )}
             </button>
 
-            {/* Acción 2/2: Visualizar (abre el modal centrado) */}
+            {/* Acción 2/3: Visualizar (abre el modal centrado) */}
             <button
               type="button"
               onClick={() => setPreviewOpen(true)}
@@ -109,6 +112,19 @@ export default function DocumentRow({ doc, downloading, onDownload }: DocumentRo
               <Eye className="h-3.5 w-3.5" />
               Visualizar
             </button>
+
+            {/* Acción 3/3: Eliminar documento (confirmación con autorización en RAM) */}
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(true)}
+              disabled={isBusy}
+              aria-label={`Eliminar ${doc.name}`}
+              title="Eliminar documento"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Eliminar
+            </button>
           </div>
         </td>
       </tr>
@@ -118,6 +134,13 @@ export default function DocumentRow({ doc, downloading, onDownload }: DocumentRo
         doc={doc}
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
+      />
+
+      {/* Modal de confirmación y autorización para eliminación segura */}
+      <DeleteDocumentModal
+        doc={doc}
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
       />
     </>
   );

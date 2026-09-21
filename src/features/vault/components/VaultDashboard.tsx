@@ -1,10 +1,10 @@
 /**
  * VaultDashboard.tsx
  * ---------------------------------------------------------------------------
- * Dashboard de la bóveda con EXACTAMENTE 2 acciones por archivo
- * (ver `DocumentRow.tsx`):
+ * Dashboard corporativo de la bóveda (ver `DocumentRow.tsx`):
  *   1) "Descargar archivo" (flujo gateado por la contraseña en RAM).
  *   2) "Visualizar" (modal centrado y limpio con metadatos y copiado de huella).
+ *   3) "Eliminar" (modal de confirmación irreversible y autorización en RAM).
  *
  * Flujo de descarga
  * -----------------
