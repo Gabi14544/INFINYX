@@ -139,6 +139,11 @@ export interface AuthState {
    * OTP para derivar en local la `vaultKey` (Zero-Knowledge) tras la verificación.
    */
   tempRegistrationPassword: string | null;
+  /**
+   * Mensaje informativo de éxito en autenticación (p. ej. confirmación de cuenta
+   * tras OTP cuando no se dispone de la contraseña en RAM para derivar la vaultKey).
+   */
+  authSuccessMessage: string | null;
   isLoading: boolean;
   error: string | null;
 }
@@ -192,6 +197,8 @@ export interface AuthActions {
   clearRecoveryPhrase: () => void;
   /** Borra el aviso de confirmación pendiente (p. ej. al cambiar de pestaña). */
   clearPendingConfirmation: () => void;
+  /** Limpia el mensaje informativo de éxito de autenticación. */
+  clearAuthSuccessMessage: () => void;
   /** Limpia el último error registrado. */
   clearError: () => void;
 }
@@ -207,9 +214,17 @@ const INITIAL_STATE: AuthState = {
   isAwaitingOtp: false,
   otpEmail: null,
   tempRegistrationPassword: null,
+  authSuccessMessage: null,
   isLoading: false,
   error: null,
 };
+
+/**
+ * Variable en memoria a nivel de módulo para retener temporalmente la contraseña de registro
+ * y evitar race conditions cuando Supabase Auth dispara onAuthStateChange antes de que
+ * verifySignUpOtp complete la derivación de la vaultKey.
+ */
+let cachedRegistrationPassword: string | null = null;
 
 /**
  * Suscripción activa a `onAuthStateChange`, a nivel de módulo, para que
@@ -226,7 +241,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   ...INITIAL_STATE,
 
   signUp: async (email, password) => {
-    set({ isLoading: true, error: null, pendingConfirmationEmail: null });
+    set({ isLoading: true, error: null, pendingConfirmationEmail: null, authSuccessMessage: null });
 
     try {
       const { data, error } = await supabase.auth.signUp({ email, password });
@@ -241,8 +256,10 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
       // Si el registro es exitoso y no devuelve sesión activa (requiere confirmación):
       // guarda otpEmail = email, tempRegistrationPassword = password, e isAwaitingOtp = true.
+      // Además, respalda la contraseña a nivel de módulo en cachedRegistrationPassword.
       // NO redirigir, NO limpiar la contraseña todavía.
       if (!data.session) {
+        cachedRegistrationPassword = password;
         set({
           user: null,
           session: null,
@@ -252,6 +269,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
           isAwaitingOtp: true,
           otpEmail: user.email ?? email,
           tempRegistrationPassword: password,
+          authSuccessMessage: null,
           isLoading: false,
           error: null,
         });
@@ -260,6 +278,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
       // 1) Clave de bóveda: derivación local, jamás sale del navegador.
       const vaultKey = await deriveVaultKey(user.id, password);
+      cachedRegistrationPassword = null;
 
       // 2) Frase de recuperación: se entrega al usuario, no se persiste.
       const recoveryPhrase = generateRecoveryPhrase();
@@ -276,10 +295,12 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         isAwaitingOtp: false,
         otpEmail: null,
         tempRegistrationPassword: null,
+        authSuccessMessage: null,
         isLoading: false,
         error: null,
       });
     } catch (cause) {
+      cachedRegistrationPassword = null;
       set({
         ...INITIAL_STATE,
         error: toErrorMessage(cause, 'No se pudo completar el registro.'),
@@ -288,13 +309,13 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   },
 
   verifySignUpOtp: async (token: string) => {
-    const email = get().otpEmail;
+    const email = get().otpEmail ?? get().user?.email;
     if (!email) {
       set({ error: 'No hay un correo pendiente de verificación.' });
       return false;
     }
 
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, authSuccessMessage: null });
 
     try {
       const { data, error } = await supabase.auth.verifyOtp({
@@ -321,29 +342,50 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         return false;
       }
 
-      const tempPassword = get().tempRegistrationPassword;
-      if (!tempPassword) {
+      // Obtén la contraseña a usar:
+      const passwordToUse = cachedRegistrationPassword || get().tempRegistrationPassword;
+
+      if (passwordToUse) {
+        // 1. Deriva la vaultKey mediante deriveVaultKeyFromPassword(passwordToUse)
+        const deriveVaultKeyFromPassword = (pwd: string) => deriveVaultKey(user.id, pwd);
+        const vaultKey = await deriveVaultKeyFromPassword(passwordToUse);
+
+        // 2. Limpia cachedRegistrationPassword = null y tempRegistrationPassword = null
+        cachedRegistrationPassword = null;
+
+        // 3. Actualiza el estado con user, session, vaultKey, e isAwaitingOtp = false
+        // 4. Deja al usuario dentro del Dashboard directamente
         set({
+          user,
+          session,
+          vaultKey,
+          tempRegistrationPassword: null,
+          otpEmail: null,
+          isAwaitingOtp: false,
+          pendingConfirmationEmail: null,
+          authSuccessMessage: null,
           isLoading: false,
-          error: 'No se encontró la contraseña temporal en memoria para desbloquear la bóveda.',
+          error: null,
         });
-        return false;
+
+        return true;
       }
 
-      // 1. Utiliza tempRegistrationPassword para derivar localmente la vaultKey con PBKDF2 (manteniendo el flujo Zero-Knowledge).
-      const vaultKey = await deriveVaultKey(user.id, tempPassword);
-
-      // 2. Limpia inmediatamente tempRegistrationPassword = null.
-      // 3. Actualiza el estado con user, session, vaultKey e isAwaitingOtp = false.
-      // 4. El usuario pasa automáticamente al Dashboard.
+      // Si por algún motivo extremo no existe la contraseña (ej. el usuario recargó la página F5 en medio del OTP):
+      // 1. NO arrojes error en la pestaña de Crear Cuenta.
+      // 2. Deja isAwaitingOtp = false, limpia el error, y cambia el estado o indica a la UI
+      //    que muestre la pestaña "Iniciar Sesión" con el email precargado y un mensaje:
+      //    "Cuenta confirmada correctamente. Introduce tu contraseña para entrar a la bóveda."
+      cachedRegistrationPassword = null;
       set({
         user,
         session,
-        vaultKey,
+        vaultKey: null,
         tempRegistrationPassword: null,
-        otpEmail: null,
+        otpEmail: user.email ?? email,
         isAwaitingOtp: false,
         pendingConfirmationEmail: null,
+        authSuccessMessage: 'Cuenta confirmada correctamente. Introduce tu contraseña para entrar a la bóveda.',
         isLoading: false,
         error: null,
       });
@@ -386,16 +428,19 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   },
 
   cancelOtpFlow: () => {
+    cachedRegistrationPassword = null;
     set({
       otpEmail: null,
       tempRegistrationPassword: null,
       isAwaitingOtp: false,
+      authSuccessMessage: null,
       error: null,
     });
   },
 
   signIn: async (email, password) => {
-    set({ isLoading: true, error: null, pendingConfirmationEmail: null });
+    cachedRegistrationPassword = null;
+    set({ isLoading: true, error: null, pendingConfirmationEmail: null, authSuccessMessage: null });
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -416,6 +461,7 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
         vaultKey,
         recoveryPhrase: null,
         pendingConfirmationEmail: null,
+        authSuccessMessage: null,
         isLoading: false,
         error: null,
       });
@@ -430,7 +476,8 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
   signOut: async () => {
     // La clave se destruye ANTES de la llamada de red para minimizar la
     // ventana en la que sigue viva en memoria.
-    set({ vaultKey: null, recoveryPhrase: null, isLoading: true, error: null });
+    cachedRegistrationPassword = null;
+    set({ vaultKey: null, recoveryPhrase: null, isLoading: true, error: null, authSuccessMessage: null });
 
     try {
       const { error } = await supabase.auth.signOut();
@@ -519,6 +566,10 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       if (event === 'SIGNED_OUT') {
         // Sesión revocada (expiración, logout en otra pestaña, borrado de
         // cuenta): la clave en RAM deja de ser válida y se destruye.
+        // No limpiamos cachedRegistrationPassword de forma prematura si isAwaitingOtp es true.
+        if (!get().isAwaitingOtp) {
+          cachedRegistrationPassword = null;
+        }
         set({ ...INITIAL_STATE });
         return;
       }
@@ -527,13 +578,20 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       // PASSWORD_RECOVERY: se sincroniza la sesión preservando la `vaultKey`
       // ya derivada en esta pestaña. Si aparece sesión válida, la
       // confirmación pendiente queda resuelta.
+      const isAwaiting = get().isAwaitingOtp;
+
+      // Mientras isAwaitingOtp sea true, aseguramos que onAuthStateChange no limpie
+      // cachedRegistrationPassword ni tempRegistrationPassword de forma prematura,
+      // ni altere isAwaitingOtp hasta que verifySignUpOtp finalice la derivación.
       set({
         session,
         user: session?.user ?? null,
         pendingConfirmationEmail: session ? null : get().pendingConfirmationEmail,
-        isAwaitingOtp: session ? false : get().isAwaitingOtp,
-        otpEmail: session ? null : get().otpEmail,
-        tempRegistrationPassword: session ? null : get().tempRegistrationPassword,
+        isAwaitingOtp: isAwaiting ? true : (session ? false : get().isAwaitingOtp),
+        otpEmail: isAwaiting ? get().otpEmail : (session ? null : get().otpEmail),
+        tempRegistrationPassword: isAwaiting
+          ? get().tempRegistrationPassword
+          : (session ? null : get().tempRegistrationPassword),
       });
     });
 
@@ -557,6 +615,10 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
   clearPendingConfirmation: () => {
     set({ pendingConfirmationEmail: null });
+  },
+
+  clearAuthSuccessMessage: () => {
+    set({ authSuccessMessage: null });
   },
 
   clearError: () => {

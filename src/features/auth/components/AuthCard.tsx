@@ -32,6 +32,7 @@ export default function AuthCard() {
   const otpInputRef = useRef<HTMLInputElement>(null);
 
   const {
+    user,
     signIn,
     signUp,
     verifySignUpOtp,
@@ -41,6 +42,8 @@ export default function AuthCard() {
     otpEmail,
     isLoading,
     error,
+    authSuccessMessage,
+    clearAuthSuccessMessage,
     recoveryPhrase,
     pendingConfirmationEmail,
     clearRecoveryPhrase,
@@ -54,9 +57,20 @@ export default function AuthCard() {
     }
   }, [isAwaitingOtp]);
 
+  useEffect(() => {
+    if (authSuccessMessage) {
+      setTab('login');
+      const targetEmail = user?.email || otpEmail;
+      if (targetEmail) {
+        setEmail(targetEmail);
+      }
+    }
+  }, [authSuccessMessage, user?.email, otpEmail]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     clearError();
+    clearAuthSuccessMessage();
     if (tab === 'login') {
       await signIn(email.trim(), password);
     } else {
@@ -106,6 +120,7 @@ export default function AuthCard() {
     setOtpCode('');
     setResendSuccess(false);
     clearError();
+    clearAuthSuccessMessage();
   };
 
   const handleCopyPhrase = async () => {
@@ -124,6 +139,7 @@ export default function AuthCard() {
     setCopied(false);
     clearPendingConfirmation();
     clearError();
+    clearAuthSuccessMessage();
   };
 
   return (
@@ -315,7 +331,17 @@ export default function AuthCard() {
               </div>
             )}
 
-            {pendingConfirmationEmail && !error && (
+            {authSuccessMessage && !error && (
+              <div
+                role="status"
+                className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-3 text-sm text-emerald-200"
+              >
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                <span className="break-words">{authSuccessMessage}</span>
+              </div>
+            )}
+
+            {pendingConfirmationEmail && !error && !authSuccessMessage && (
               <div
                 role="status"
                 className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-3 text-sm text-emerald-200"
