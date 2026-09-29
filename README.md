@@ -203,17 +203,6 @@ La UI (`src/App.tsx`) implementa un flujo unificado con un único inicio de sesi
 
 ### 4.2. Flujo de datos: subida
 
-```mermaid
-flowchart LR
-    A[File.arrayBuffer<br/>Lectura en RAM] --> B[computeSHA256<br/>Huella del texto plano]
-    B --> C[encryptBuffer<br/>AES-GCM-256 + IV único]
-    C --> D[Storage upload<br/>vault_files/:uid/:docId/v1.enc<br/>application/octet-stream]
-    D --> E[Postgres<br/>documents + document_versions]
-    E --> F[audit_logs<br/>UPLOAD best-effort]
-```
-
-Paso a paso (`uploadDocument(file, vaultKey)` en `useVaultStore.ts`):
-
 1. **Lectura** (`uploadStatus: 'reading'`): `file.arrayBuffer()` en memoria; el texto plano nunca toca disco ni red.
 2. **Huella** (`'hashing'`): `computeSHA256` del texto plano → referencia de integridad.
 3. **Cifrado** (`'encrypting'`): `encryptBuffer` con la `vaultKey` de RAM e IV aleatorio por versión.
@@ -223,17 +212,6 @@ Paso a paso (`uploadDocument(file, vaultKey)` en `useVaultStore.ts`):
 7. `uploadStatus: 'done'` y refresco del catálogo vía `fetchDocuments()`.
 
 ### 4.3. Flujo de datos: descarga (gateada por la contraseña en RAM)
-
-```mermaid
-flowchart LR
-    G{downloadSessionPassword<br/>en RAM?} -->|sí| A
-    G -->|no| M[DownloadAuthModal<br/>crear / ingresar + PBKDF2]
-    M -->|onAuthenticated| A
-    A[Storage download<br/>blob .enc] --> B[decryptBuffer<br/>en RAM, tag GCM]
-    B --> C[computeSHA256<br/>recalculado]
-    C -->|coincide| D[audit DOWNLOAD_DECRYPT<br/>+ Blob URL temporal 60s]
-    C -->|difiere| E[audit INTEGRITY_FAILURE<br/>descarga abortada]
-```
 
 Paso a paso (`VaultDashboard.handleDownload` + `downloadAndDecrypt(descriptor, vaultKey)`):
 
