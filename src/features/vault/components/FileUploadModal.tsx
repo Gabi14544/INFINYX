@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../auth/stores/useAuthStore';
 import { useVaultStore } from '../stores/useVaultStore';
+import { MAX_VAULT_FILE_SIZE_BYTES } from '../../../core/crypto/vaultCrypto';
+import { formatSize } from '../utils/formatters';
 import type { UploadStatus } from '../../../shared/types';
 
 interface FileUploadModalProps {
@@ -81,6 +83,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
   const clearError = useVaultStore((s) => s.clearError);
 
   const [file, setFile] = useState<File | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -88,6 +91,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
   useEffect(() => {
     if (open) {
       setFile(null);
+      setLocalError(null);
       setDragging(false);
       resetUploadStatus();
       clearError();
@@ -110,10 +114,22 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
         : Math.round((activeIndex / PIPELINE_STEPS.length) * 100);
 
   const pickFile = (candidate: File | undefined | null) => {
-    if (candidate && !busy) {
-      setFile(candidate);
-      clearError();
+    if (!candidate || busy) return;
+    clearError();
+    if (candidate.size === 0) {
+      setFile(null);
+      setLocalError('El archivo seleccionado está vacío (0 bytes).');
+      return;
     }
+    if (candidate.size > MAX_VAULT_FILE_SIZE_BYTES) {
+      setFile(null);
+      setLocalError(
+        `El archivo (${formatSize(candidate.size)}) supera el límite seguro de ${formatSize(MAX_VAULT_FILE_SIZE_BYTES)} en RAM.`,
+      );
+      return;
+    }
+    setLocalError(null);
+    setFile(candidate);
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -132,6 +148,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
     if (busy) return;
     resetUploadStatus();
     clearError();
+    setLocalError(null);
     setFile(null);
     onClose();
   };
@@ -215,20 +232,20 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                   Arrastra tu archivo aquí o haz clic para seleccionarlo
                 </p>
                 <p className="text-xs text-zinc-500">
-                  El texto plano nunca abandona este dispositivo sin cifrar
+                  El texto plano nunca abandona este dispositivo sin cifrar · Máx. 50 MB
                 </p>
               </>
             )}
           </div>
 
-          {/* Error de subida */}
-          {failed && vaultError && (
+          {/* Error de subida o validación local */}
+          {(localError || (failed && vaultError)) && (
             <div
               role="alert"
               className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-3 text-sm text-red-300"
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span className="break-words">{vaultError}</span>
+              <span className="break-words">{localError || (failed ? vaultError : null)}</span>
             </div>
           )}
 

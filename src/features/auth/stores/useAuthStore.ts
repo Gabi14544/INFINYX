@@ -30,7 +30,7 @@
 import type { Session, User } from '@supabase/supabase-js';
 import { create } from 'zustand';
 
-import { deriveKey, generateRecoveryPhrase } from '../../../core/crypto/vaultCrypto';
+import { deriveAuthPassword, deriveKey, generateRecoveryPhrase } from '../../../core/crypto/vaultCrypto';
 import { supabase } from '../../../shared/lib/supabase';
 
 // ---------------------------------------------------------------------------
@@ -201,6 +201,8 @@ export interface AuthActions {
   clearAuthSuccessMessage: () => void;
   /** Limpia el último error registrado. */
   clearError: () => void;
+  /** Bloquea la bóveda en memoria RAM preservando la sesión de Supabase Auth. */
+  lockVaultInMemory: (reason?: string) => void;
 }
 
 export type AuthStore = AuthState & AuthActions;
@@ -244,7 +246,8 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
     set({ isLoading: true, error: null, pendingConfirmationEmail: null, authSuccessMessage: null });
 
     try {
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const authPassword = await deriveAuthPassword(email, password);
+      const { data, error } = await supabase.auth.signUp({ email, password: authPassword });
       if (error) {
         throw error;
       }
@@ -346,19 +349,21 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
       const passwordToUse = cachedRegistrationPassword || get().tempRegistrationPassword;
 
       if (passwordToUse) {
-        // 1. Deriva la vaultKey mediante deriveVaultKeyFromPassword(passwordToUse)
+        // 1. Deriva la vaultKey mediante deriveVaultKeyFromPassword(passwordToUse) y genera la recoveryPhrase
         const deriveVaultKeyFromPassword = (pwd: string) => deriveVaultKey(user.id, pwd);
         const vaultKey = await deriveVaultKeyFromPassword(passwordToUse);
+        const recoveryPhrase = generateRecoveryPhrase();
 
         // 2. Limpia cachedRegistrationPassword = null y tempRegistrationPassword = null
         cachedRegistrationPassword = null;
 
-        // 3. Actualiza el estado con user, session, vaultKey, e isAwaitingOtp = false
+        // 3. Actualiza el estado con user, session, vaultKey, recoveryPhrase, e isAwaitingOtp = false
         // 4. Deja al usuario dentro del Dashboard directamente
         set({
           user,
           session,
           vaultKey,
+          recoveryPhrase,
           tempRegistrationPassword: null,
           otpEmail: null,
           isAwaitingOtp: false,
@@ -443,12 +448,19 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
     set({ isLoading: true, error: null, pendingConfirmationEmail: null, authSuccessMessage: null });
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        throw error;
+      const authPassword = await deriveAuthPassword(email, password);
+      let authResult = await supabase.auth.signInWithPassword({ email, password: authPassword });
+
+      if (authResult.error) {
+        // Fallback retrocompatible para cuentas creadas antes del parche
+        authResult = await supabase.auth.signInWithPassword({ email, password });
       }
 
-      const { user, session } = data;
+      if (authResult.error) {
+        throw authResult.error;
+      }
+
+      const { user, session } = authResult.data;
       if (!user || !session) {
         throw new Error('Supabase no devolvió una sesión válida.');
       }
@@ -512,17 +524,24 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
       // Verificación de la passphrase antes de derivar, para no cargar en RAM
       // una clave incorrecta que cifraría documentos de forma irrecuperable.
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
+      const authPassword = await deriveAuthPassword(email, password);
+      let authResult = await supabase.auth.signInWithPassword({ email, password: authPassword });
+
+      if (authResult.error) {
+        // Fallback retrocompatible para cuentas creadas antes del parche
+        authResult = await supabase.auth.signInWithPassword({ email, password });
+      }
+
+      if (authResult.error) {
         throw new Error('Passphrase incorrecta: no se pudo desbloquear la bóveda.');
       }
 
-      const verifiedUser = data.user ?? activeUser;
+      const verifiedUser = authResult.data.user ?? activeUser;
       const vaultKey = await deriveVaultKey(verifiedUser.id, password);
 
       set({
         user: verifiedUser,
-        session: data.session ?? session,
+        session: authResult.data.session ?? session,
         vaultKey,
         isLoading: false,
         error: null,
@@ -623,6 +642,17 @@ export const useAuthStore = create<AuthStore>()((set, get) => ({
 
   clearError: () => {
     set({ error: null });
+  },
+
+  lockVaultInMemory: (reason) => {
+    cachedRegistrationPassword = null;
+    set({
+      vaultKey: null,
+      recoveryPhrase: null,
+      authSuccessMessage:
+        reason ?? 'Por seguridad, la bóveda se bloqueó tras 10 minutos de inactividad. Introduce tu contraseña para continuar.',
+      error: null,
+    });
   },
 }));
 

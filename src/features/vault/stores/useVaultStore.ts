@@ -24,6 +24,7 @@ import {
   computeSHA256,
   decryptBuffer,
   encryptBuffer,
+  MAX_VAULT_FILE_SIZE_BYTES,
 } from '../../../core/crypto/vaultCrypto';
 import { supabase } from '../../../shared/lib/supabase';
 import type {
@@ -36,6 +37,7 @@ import type {
 } from '../../../shared/types';
 import { VAULT_BUCKET } from '../../../shared/types';
 import { useAuthStore } from '../../auth/stores/useAuthStore';
+import { useDownloadAuthStore } from './useDownloadAuthStore';
 
 /** MIME con el que se sube el blob cifrado: opaco, no filtra el tipo real. */
 const CIPHERTEXT_MIME = 'application/octet-stream';
@@ -356,6 +358,13 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
     let uploadedPath: string | null = null;
 
     try {
+      if (file.size === 0) {
+        throw new Error('El archivo está vacío (0 bytes) y no puede procesarse.');
+      }
+      if (file.size > MAX_VAULT_FILE_SIZE_BYTES) {
+        throw new Error('El archivo supera el límite máximo permitido de 50 MB en memoria RAM.');
+      }
+
       const user = await requireUser();
 
       // 0) Resolución del documento lógico por nombre (versionado por `name`
@@ -413,9 +422,13 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
       set({ uploadStatus: 'hashing' });
       const sha256Hash = await computeSHA256(plainBuffer);
 
-      // 3) Cifrado AES-GCM-256 con IV aleatorio único por versión.
+      // 3) Cifrado AES-GCM-256 con IV aleatorio único por versión y metadatos autenticados (AAD).
       set({ uploadStatus: 'encrypting' });
-      const { cipherBuffer, iv } = await encryptBuffer(plainBuffer, vaultKey);
+      const { cipherBuffer, iv } = await encryptBuffer(plainBuffer, vaultKey, {
+        userId: user.id,
+        documentId: targetDocumentId,
+        versionNumber: nextVersionNumber,
+      });
 
       // 4) Subida del ciphertext. Para documentos nuevos el `documentId` se
       //    genera en cliente para construir la ruta antes de existir la fila;
@@ -520,6 +533,10 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
+      if (!useDownloadAuthStore.getState().hasDownloadSessionPassword()) {
+        throw new Error('Operación bloqueada: debes autorizar la sesión con tu contraseña de descarga.');
+      }
+
       const user = await requireUser();
 
       // 1) Descarga del blob cifrado.
@@ -536,9 +553,13 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
 
       const cipherBuffer = await encryptedBlob.arrayBuffer();
 
-      // 2) Descifrado. AES-GCM rechaza automáticamente si el tag de
+      // 2) Descifrado con verificación de metadatos (AAD). AES-GCM rechaza automáticamente si el tag de
       //    autenticación no cuadra (clave incorrecta o ciphertext alterado).
-      const plainBuffer = await decryptBuffer(cipherBuffer, vaultKey, versionData.iv);
+      const plainBuffer = await decryptBuffer(cipherBuffer, vaultKey, versionData.iv, {
+        userId: user.id,
+        documentId: versionData.documentId,
+        versionNumber: versionData.versionNumber,
+      });
 
       // 3) Verificación de integridad contra el hash almacenado.
       const actualHash = await computeSHA256(plainBuffer);
@@ -588,6 +609,10 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
+      if (!useDownloadAuthStore.getState().hasDownloadSessionPassword()) {
+        throw new Error('Operación bloqueada: debes autorizar la sesión con tu contraseña de descarga.');
+      }
+
       const user = await requireUser();
       const targetDoc = get().documents.find((doc) => doc.id === documentId);
 

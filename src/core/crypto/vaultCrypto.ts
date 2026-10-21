@@ -35,6 +35,9 @@ const AES_KEY_LENGTH_BITS = 256;
 /** Longitud recomendada del IV para AES-GCM, en bytes (96 bits). */
 const IV_LENGTH_BYTES = 12;
 
+/** Tamaño máximo permitido por archivo (50 MB) para evitar desbordar la RAM de la pestaña. */
+export const MAX_VAULT_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+
 /** Cantidad de palabras que compone una frase de recuperación. */
 const RECOVERY_PHRASE_WORD_COUNT = 12;
 
@@ -164,11 +167,78 @@ export async function deriveKey(
 }
 
 // ---------------------------------------------------------------------------
-// Cifrado / Descifrado simétrico (AES-GCM-256)
+// Derivación de contraseña de autenticación (Supabase Auth)
 // ---------------------------------------------------------------------------
 
+/** Dominio separado para derivar la credencial de autenticación enviada a Supabase Auth. */
+const AUTH_PASSWORD_DOMAIN = "tech-value:auth:kdf:v1";
+
+/** Iteraciones PBKDF2 para derivar la credencial de autenticación en cliente. */
+const AUTH_PASSWORD_ITERATIONS = 100_000;
+
 /**
- * Cifra un ArrayBuffer con AES-GCM-256 usando la clave provista.
+ * Deriva localmente una clave hexadecimal de 256 bits a partir del email y la
+ * passphrase para autenticarse contra Supabase Auth sin enviar la passphrase
+ * original en texto claro por la red.
+ */
+export async function deriveAuthPassword(
+  email: string,
+  passphrase: string,
+): Promise<string> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (normalizedEmail.length === 0 || passphrase.length === 0) {
+    throw new Error("deriveAuthPassword: el email y la passphrase no pueden estar vacíos.");
+  }
+
+  const encoder = new TextEncoder();
+  const saltMaterial = encoder.encode(`${AUTH_PASSWORD_DOMAIN}:${normalizedEmail}`);
+  const saltDigest = await window.crypto.subtle.digest(HASH_ALGORITHM, saltMaterial);
+
+  const baseKey = await window.crypto.subtle.importKey(
+    "raw",
+    encoder.encode(passphrase),
+    { name: "PBKDF2" },
+    false,
+    ["deriveBits"],
+  );
+
+  const bits = await window.crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      salt: new Uint8Array(saltDigest),
+      iterations: AUTH_PASSWORD_ITERATIONS,
+      hash: HASH_ALGORITHM,
+    },
+    baseKey,
+    AES_KEY_LENGTH_BITS,
+  );
+
+  return `tv1_${bufferToHex(bits)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Cifrado / Descifrado simétrico (AES-GCM-256) con AAD
+// ---------------------------------------------------------------------------
+
+/** Contexto de metadatos autenticados (AAD) vinculado al tag GCM del archivo. */
+export interface VaultEncryptionContext {
+  userId: string;
+  documentId: string;
+  versionNumber: number;
+}
+
+/** Construye el buffer AAD determinista para AES-GCM. */
+export function buildAdditionalData(ctx: VaultEncryptionContext): Uint8Array<ArrayBuffer> {
+  const raw = `tech-value:aad:v1:${ctx.userId}:${ctx.documentId}:v${ctx.versionNumber}`;
+  const encoded = new TextEncoder().encode(raw);
+  const buffer = new ArrayBuffer(encoded.byteLength);
+  const view = new Uint8Array(buffer);
+  view.set(encoded);
+  return view;
+}
+
+/**
+ * Cifra un ArrayBuffer con AES-GCM-256 usando la clave provista y contexto opcional AAD.
  * Genera internamente un IV aleatorio de 12 bytes (96 bits), único por
  * operación, tal como exige el estándar AES-GCM.
  *
@@ -177,15 +247,16 @@ export async function deriveKey(
 export async function encryptBuffer(
   data: ArrayBuffer,
   key: CryptoKey,
+  context?: VaultEncryptionContext,
 ): Promise<{ cipherBuffer: ArrayBuffer; iv: string }> {
   const ivBytes = new Uint8Array(IV_LENGTH_BYTES);
   window.crypto.getRandomValues(ivBytes);
 
-  const cipherBuffer = await window.crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: ivBytes },
-    key,
-    data,
-  );
+  const params: AesGcmParams = context
+    ? { name: "AES-GCM", iv: ivBytes, additionalData: buildAdditionalData(context) }
+    : { name: "AES-GCM", iv: ivBytes };
+
+  const cipherBuffer = await window.crypto.subtle.encrypt(params, key, data);
 
   return {
     cipherBuffer,
@@ -196,6 +267,8 @@ export async function encryptBuffer(
 /**
  * Descifra un ArrayBuffer previamente cifrado con `encryptBuffer`, usando la
  * misma clave y el IV (en hexadecimal) generado durante el cifrado.
+ * Si se suministra un contexto AAD, intenta autenticarlo primero y ofrece
+ * un fallback sin AAD para garantizar retrocompatibilidad con blobs v1.
  *
  * Si la clave, el IV o el ciphertext no coinciden (integridad comprometida),
  * `SubtleCrypto` rechaza la promesa automáticamente gracias al tag de
@@ -205,6 +278,7 @@ export async function decryptBuffer(
   cipherBuffer: ArrayBuffer,
   key: CryptoKey,
   ivString: string,
+  context?: VaultEncryptionContext,
 ): Promise<ArrayBuffer> {
   const ivBuffer = hexToBuffer(ivString);
 
@@ -214,8 +288,27 @@ export async function decryptBuffer(
     );
   }
 
+  const ivArray = new Uint8Array(ivBuffer);
+
+  if (context) {
+    try {
+      return await window.crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: ivArray,
+          additionalData: buildAdditionalData(context),
+        },
+        key,
+        cipherBuffer,
+      );
+    } catch {
+      // Fallback retrocompatible: permite descifrar documentos v1 creados
+      // antes de incorporar AAD. La verificación SHA-256 posterior sigue activa.
+    }
+  }
+
   return window.crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: new Uint8Array(ivBuffer) },
+    { name: "AES-GCM", iv: ivArray },
     key,
     cipherBuffer,
   );
