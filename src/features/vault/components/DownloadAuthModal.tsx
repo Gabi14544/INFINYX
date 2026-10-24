@@ -1,7 +1,7 @@
 /**
  * DownloadAuthModal.tsx
  * ---------------------------------------------------------------------------
- * Modal de seguridad para la "Contraseña de Descarga" (tema Private Wealth):
+ * Modal de seguridad para la "Contraseña de Descarga" (INFINYX / Hexa-Mugen Dual):
  *
  * - Al abrirse consulta `profiles(download_verifier, download_salt)` del
  *   usuario autenticado.
@@ -233,29 +233,29 @@ export default function DownloadAuthModal({ open, onClose, onAuthenticated }: Do
       aria-label={
         isCreate ? 'Crear contraseña única de descarga' : 'Ingresar contraseña de descarga'
       }
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs dark:bg-black/80"
       onClick={() => {
         if (!busy) onClose();
       }}
     >
       <div
-        className="w-full max-w-md overflow-hidden rounded-2xl border border-[#E6E4DD] bg-white text-[#181816] shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl ring-1 ring-sky-500/10 transition-colors dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:shadow-black/80 dark:ring-[#38BDF8]/15"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-[#EFECE6] px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-[#1E293B]">
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] text-[#6E6053]">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-[#0284C7] dark:border-[#38BDF8]/30 dark:bg-[#38BDF8]/10 dark:text-[#38BDF8]">
               <KeyRound className="h-5 w-5" />
             </span>
             <div>
-              <h3 className="font-editorial text-lg font-semibold text-[#181816]">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F8FAFC]">
                 {mode === 'loading'
                   ? 'Verificando seguridad…'
                   : isCreate
                     ? 'Crear Contraseña Única de Descarga'
                     : 'Ingresar Contraseña de Descarga'}
               </h3>
-              <p className="text-xs text-[#6E6A63]">
+              <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                 {isCreate
                   ? 'Se usará para autorizar cada descarga en esta sesión'
                   : 'Autoriza la descarga del archivo seleccionado'}
@@ -267,29 +267,27 @@ export default function DownloadAuthModal({ open, onClose, onAuthenticated }: Do
             onClick={onClose}
             disabled={busy}
             aria-label="Cerrar"
-            className="rounded-lg p-1.5 text-[#8C867B] transition hover:bg-[#F3F1EC] hover:text-[#181816] disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#94A3B8] dark:hover:bg-[#111827] dark:hover:text-[#F8FAFC]"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="space-y-4 px-6 py-5">
+        <div className="space-y-4 overflow-y-auto px-6 py-5">
           {mode === 'loading' ? (
-            <div className="flex items-center justify-center gap-2.5 py-8 text-sm text-[#6E6A63]">
-              <Loader2 className="h-5 w-5 animate-spin text-[#6E6053]" />
+            <div className="flex items-center justify-center gap-2.5 py-8 text-sm text-slate-500 dark:text-[#94A3B8]">
+              <Loader2 className="h-5 w-5 animate-spin text-[#0284C7] dark:text-[#38BDF8]" />
               Consultando credenciales de autorización…
             </div>
           ) : (
             <form onSubmit={isCreate ? handleCreate : handleEnter} className="space-y-4">
-              <p className="flex items-start gap-2.5 rounded-lg border border-[#E5E0D5] bg-[#F8F6F1] px-3.5 py-3 text-xs leading-relaxed text-[#5C5346]">
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#6E6053]" />
-                {isCreate
-                  ? 'Se generará un salt aleatorio y un verificador PBKDF2-SHA256 (100.000 iteraciones). La contraseña en claro sólo vivirá en la memoria RAM de esta pestaña.'
-                  : 'Derivamos el hash con tu salt guardado y lo comparamos con el verificador. Al validarse, la contraseña queda en RAM hasta recargar o cerrar sesión.'}
+              <p className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs leading-relaxed text-slate-600 dark:border-[#1E293B] dark:bg-[#07090E] dark:text-[#94A3B8]">
+                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#0284C7] dark:text-[#38BDF8]" />
+                Ingresa tu contraseña de autorización para habilitar las descargas durante esta sesión.
               </p>
 
               <div className="space-y-1.5">
-                <label htmlFor="download-password" className="text-sm font-medium text-[#181816]">
+                <label htmlFor="download-password" className="text-sm font-medium text-slate-700 dark:text-[#F8FAFC]">
                   {isCreate ? 'Nueva contraseña de descarga' : 'Contraseña de descarga'}
                 </label>
                 <div className="relative">
@@ -307,14 +305,14 @@ export default function DownloadAuthModal({ open, onClose, onAuthenticated }: Do
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={busy}
                     autoFocus
-                    className="w-full rounded-lg border border-[#DCD9D0] bg-white px-3.5 py-2.5 pr-11 text-sm text-[#181816] placeholder:text-[#9E9A91] outline-none transition focus:border-[#141413] focus:ring-2 focus:ring-[#141413]/10 disabled:opacity-60"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 pr-11 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:opacity-60 dark:border-[#1E293B] dark:bg-[#07090E] dark:text-[#F8FAFC] dark:placeholder:text-slate-600 dark:focus:border-[#38BDF8] dark:focus:ring-[#38BDF8]/20"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
                     disabled={busy}
                     aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-[#6E6A63] transition hover:bg-[#F3F1EC] hover:text-[#181816] disabled:opacity-50"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50 dark:text-[#94A3B8] dark:hover:bg-[#111827] dark:hover:text-[#BAE6FD]"
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -325,7 +323,7 @@ export default function DownloadAuthModal({ open, onClose, onAuthenticated }: Do
                 <div className="space-y-1.5">
                   <label
                     htmlFor="download-password-confirm"
-                    className="text-sm font-medium text-[#181816]"
+                    className="text-sm font-medium text-slate-700 dark:text-[#F8FAFC]"
                   >
                     Confirmar contraseña
                   </label>
@@ -338,7 +336,7 @@ export default function DownloadAuthModal({ open, onClose, onAuthenticated }: Do
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
                     disabled={busy}
-                    className="w-full rounded-lg border border-[#DCD9D0] bg-white px-3.5 py-2.5 text-sm text-[#181816] placeholder:text-[#9E9A91] outline-none transition focus:border-[#141413] focus:ring-2 focus:ring-[#141413]/10 disabled:opacity-60"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 disabled:opacity-60 dark:border-[#1E293B] dark:bg-[#07090E] dark:text-[#F8FAFC] dark:placeholder:text-slate-600 dark:focus:border-[#38BDF8] dark:focus:ring-[#38BDF8]/20"
                   />
                 </div>
               )}
@@ -346,9 +344,9 @@ export default function DownloadAuthModal({ open, onClose, onAuthenticated }: Do
               {error && (
                 <div
                   role="alert"
-                  className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
+                  className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-50 px-3.5 py-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200"
                 >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
                   <span className="break-words">{error}</span>
                 </div>
               )}
@@ -358,23 +356,23 @@ export default function DownloadAuthModal({ open, onClose, onAuthenticated }: Do
                   type="button"
                   onClick={onClose}
                   disabled={busy}
-                  className="flex-1 rounded-lg border border-[#DCD9D0] bg-white px-4 py-2.5 text-sm font-medium text-[#181816] transition hover:bg-[#F3F1EC] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex-1 rounded-lg border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#F8FAFC] dark:hover:border-[#38BDF8]/40 dark:hover:text-[#BAE6FD] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={busy || password.length === 0 || (isCreate && confirm.length === 0)}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2B2A27] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#07090E]"
                 >
                   {busy ? (
                     <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin text-white dark:text-[#07090E]" />
                       {isCreate ? 'Creando…' : 'Verificando…'}
                     </>
                   ) : (
                     <>
-                      <KeyRound className="h-4 w-4" />
+                      <KeyRound className="h-4 w-4 text-white dark:text-[#07090E]" />
                       {isCreate ? 'Crear y autorizar' : 'Autorizar descarga'}
                     </>
                   )}

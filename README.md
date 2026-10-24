@@ -1,12 +1,13 @@
-# Tech-Value Vault — Bóveda Documental Zero-Knowledge
+# INFINYX — Bóveda de Seguridad Zero-Knowledge
 
-> Bóveda documental B2B con arquitectura estricta de **Conocimiento Cero (Zero-Knowledge)** y sistema de diseño institucional **"Private Wealth"** para sectores de alta exigencia: **Banca Privada, Family Offices, LegalTech, FinTech y Salud**. Ni el operador del servidor, ni el proveedor cloud, ni un atacante con acceso total a la infraestructura pueden leer los documentos: el texto plano jamás abandona la memoria RAM del cliente sin cifrar.
+> Bóveda documental B2B con arquitectura estricta de **Conocimiento Cero (Zero-Knowledge)** y sistema de diseño **"Hexa-Mugen" con soporte dual nativo (Modo Oscuro "Seis Ojos" y Modo Claro "Blanco Titanio")** para sectores de alta exigencia: **Banca Privada, Family Offices, LegalTech, FinTech y Salud**. Ni el operador del servidor, ni el proveedor cloud, ni un atacante con acceso total a la infraestructura pueden leer los documentos: el texto plano jamás abandona la memoria RAM del cliente sin cifrar.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178C6?logo=typescript&logoColor=white)
 ![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-06B6D4?logo=tailwindcss&logoColor=white)
-![Private Wealth UI](https://img.shields.io/badge/Design_System-Private_Wealth-6E6053?logoColor=white)
+![Hexa-Mugen UI](https://img.shields.io/badge/Design_System-Hexa--Mugen_Dual-0284C7?logoColor=white)
+![Dark & Light Mode](https://img.shields.io/badge/Theme-Dark_%26_Light_Mode-38BDF8?logoColor=black)
 ![Supabase](https://img.shields.io/badge/Supabase-Postgres_+_Storage-3ECF8E?logo=supabase&logoColor=black)
 ![Web Crypto API](https://img.shields.io/badge/Web_Crypto_API-nativa-F7DF1E?logo=javascript&logoColor=black)
 ![AES-GCM-256](https://img.shields.io/badge/AES--GCM--256-PBKDF2_SHA256-10B981)
@@ -15,9 +16,9 @@
 
 1. [Visión ejecutiva](#1-visión-ejecutiva)
 2. [El problema y el modelo de amenazas (Threat Model)](#2-el-problema-y-el-modelo-de-amenazas-threat-model)
-3. [Especificación criptográfica](#3-especificación-criptográfica-srccryptovaultcryptots)
+3. [Especificación criptográfica (`src/core/crypto/vaultCrypto.ts`)](#3-especificación-criptográfica-srccryptovaultcryptots)
 4. [Arquitectura de software (Feature-Driven)](#4-arquitectura-de-software-feature-driven)
-5. [Sistema de diseño "Private Wealth"](#5-sistema-de-diseño-private-wealth)
+5. [Sistema de diseño "Hexa-Mugen" y Tema Dual (Oscuro / Claro)](#5-sistema-de-diseño-hexa-mugen-y-tema-dual-oscuro--claro)
 6. [Arquitectura del backend (Supabase / PostgreSQL)](#6-arquitectura-del-backend-supabase--postgresql)
 7. [Guía de instalación y despliegue local](#7-guía-de-instalación-y-despliegue-local)
 8. [Operación segura, limitaciones conocidas y roadmap](#8-operación-segura-limitaciones-conocidas-y-roadmap)
@@ -26,7 +27,7 @@
 
 ## 1. Visión ejecutiva
 
-**Tech-Value Vault** es una bóveda documental institucional donde el cifrado se realiza **íntegramente en el cliente**, antes de cualquier transmisión por red. El backend (Supabase: PostgreSQL + Storage + Auth) opera bajo el principio de **servidor ciego**: almacena únicamente blobs cifrados indistinguibles de ruido blanco, vectores de inicialización públicos y metadatos no sensibles (nombre, tamaño del texto plano, huella de integridad).
+**INFINYX** es una bóveda documental institucional donde el cifrado se realiza **íntegramente en el cliente**, antes de cualquier transmisión por red. El backend (Supabase: PostgreSQL + Storage + Auth) opera bajo el principio de **servidor ciego**: almacena únicamente blobs cifrados indistinguibles de ruido blanco, vectores de inicialización públicos y metadatos no sensibles (nombre, tamaño del texto plano, huella de integridad).
 
 | Propiedad | Garantía |
 |---|---|
@@ -49,9 +50,10 @@
 | **Aislamiento multitenant** | Row Level Security (RLS) estricto por `auth.uid()` en todas las tablas y bucket privado particionado por usuario |
 | **Custodia de claves** | `CryptoKey` no extraíble (`extractable: false`), exclusivamente en memoria RAM (Zustand, sin middleware persistente) |
 | **Contraseña de descarga** | Compuerta de autorización por descarga: verificador PBKDF2-SHA-256 (100.000 iteraciones) en `profiles`, contraseña en claro sólo en RAM (`useDownloadAuthStore`) |
-| **Acciones por archivo** | 3 acciones de alto valor: 1) **Descargar archivo** (sólido ébano gateado por contraseña en RAM), 2) **Visualizar** (modal centrado y accesible con metadatos y copiado de huella) y 3) **Eliminar** (modal destructivo irreversible con autorización en RAM) |
+| **Acciones por archivo** | 3 acciones de alto valor: 1) **Descargar archivo** (gateado por contraseña en RAM), 2) **Visualizar** (modal centrado y accesible con metadatos y copiado de huella) y 3) **Eliminar** (modal destructivo irreversible con autorización en RAM) |
 | **Búsqueda y filtros en RAM** | Filtrado instantáneo 100 % en memoria del cliente por texto/hash, versión (`v1` / `v2+`) y ordenamiento sin peticiones extra |
-| **Sistema visual** | Estética **"Private Wealth"**: lienzo en porcelana cálida (`#F8F7F4`), cabecera en negro ébano (`#141413`), acentos en bronce topo (`#6E6053`) y tipografía editorial |
+| **Sistema visual Hexa-Mugen** | Isotipo de doble hexágono en titanio formando el infinito ($\infty$) con prisma central en paleta Azul Seis Ojos (`#BAE6FD`, `#38BDF8`, `#0284C7`) |
+| **Soporte Dual de Tema** | **Modo Oscuro** (Obsidiana Abisal `#07090E` y Titanio `#0D111A`) y **Modo Claro** (Blanco Titanio `#FFFFFF` y Pizarra Limpia `#F8FAFC`), conmutables mediante `ThemeToggle` y persistidos en `localStorage` |
 | **Recuperación soberana** | Frase mnemónica de 12 palabras (diccionario oficial BIP-39, 2048 palabras), generada con `crypto.getRandomValues` sin sesgo de módulo |
 | **Trazabilidad** | Bitácora `audit_logs` con eventos `UPLOAD`, `DOWNLOAD_DECRYPT`, `DELETE` e `INTEGRITY_FAILURE` |
 | **Cero dependencias cripto** | 100 % Web Crypto API nativa (`window.crypto.subtle`). Cero librerías externas para criptografía (sin crypto-js ni bcrypt) |
@@ -71,11 +73,11 @@ En soluciones tradicionales de almacenamiento corporativo (Google Drive, OneDriv
 
 ### 2.2. Principio de Cero Confianza en el Servidor (Zero-Trust Backend)
 
-Tech-Value Vault invierte el modelo: **el servidor es un disco duro ciego**.
+INFINYX invierte el modelo: **el servidor es un disco duro ciego**.
 
 - Supabase Storage (bucket privado `vault_files`) sólo recibe `ArrayBuffer` ya cifrados con AES-GCM-256, servidos como `application/octet-stream` con extensión `.enc`. Sin la clave, son indistinguibles de ruido blanco.
 - PostgreSQL sólo guarda metadatos no sensibles: nombre de archivo, MIME, tamaño del texto plano, `storage_path`, IV (público por diseño en AES-GCM) y `sha256_hash` (sólo útil para verificar integridad *después* de descifrar, nunca para recuperar contenido).
-- La autenticación (Supabase Auth, bcrypt en servidor) y la autorización (RLS) protegen el **acceso a los blobs**, pero incluso un atacante con `service_role`, con acceso físico a los discos o con un volcado completo de la base de datos **no puede descifrar ni un solo byte**: la clave sólo existe en la memoria RAM del navegador del usuario.
+- La autenticación (Supabase Auth) y la autorización (RLS) protegen el **acceso a los blobs**, pero incluso un atacante con `service_role`, con acceso físico a los discos o con un volcado completo de la base de datos **no puede descifrar ni un solo byte**: la clave sólo existe en la memoria RAM del navegador del usuario.
 
 ### 2.3. Actores y capacidades asumidas
 
@@ -103,9 +105,13 @@ Todo el motor reside en un único módulo sin dependencias externas, basado excl
 
 **Derivación del salt.** El salt PBKDF2 es determinista por usuario y se calcula en `deriveVaultSalt(userId)` como `SHA-256("tech-value:vault:kdf:v1:" + userId)`:
 - Es único por cuenta (inmunidad frente a rainbow tables compartidas entre usuarios) y reproducible en cualquier dispositivo sin almacenar nada sensible.
+<<<<<<< HEAD
 - La etiqueta incluye dominio y versión (`tech-value:vault:kdf:v1`) para permitir migraciones futuras del KDF sin colisionar con claves existentes.
 <<<<<<< HEAD
 - > **Mejora recomendada (roadmap):** añadir `profiles.vault_salt text NOT NULL` con 32 bytes aleatorios generados en el registro y leerlo en lugar de derivarlo. Ver [sección 7](#7-operación-segura-limitaciones-conocidas-y-roadmap).
+=======
+- La etiqueta incluye dominio y versión para permitir migraciones futuras del KDF sin colisionar con claves existentes.
+>>>>>>> dev
 
 La misma passphrase cumplía dos funciones independientes: autenticación y derivación de la `vaultKey`. Con el endurecimiento de seguridad, **la passphrase original jamás se envía por la red en texto claro**:
 =======
@@ -219,6 +225,7 @@ Registro / Login
 
 ```
 src/
+<<<<<<< HEAD
 ├── main.tsx                      # Entrypoint: StrictMode + App
 <<<<<<< HEAD
 ├── index.css                     # Directivas Tailwind (base/components/utilities)
@@ -250,8 +257,12 @@ src/
 ├── features/audit/               # (reservado) UI de auditoría; el registro lo emite useVaultStore
 =======
 ├── index.css                     # Directivas Tailwind + capa base Private Wealth (.font-editorial)
+=======
+├── main.tsx                      # Entrypoint: StrictMode + inicialización de tema + App
+├── index.css                     # Directivas Tailwind + estilos base Dark/Light mode
+>>>>>>> dev
 ├── vite-env.d.ts                 # Tipado de VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
-├── App.tsx                       # Orquestador: timeout inactividad + compuerta de estados
+├── App.tsx                       # Orquestador: timeout inactividad (10m) + compuerta de estados
 ├── app/                          # Layout y proveedores base
 ├── assets/                       # Recursos estáticos
 │
@@ -261,17 +272,17 @@ src/
 │
 ├── features/auth/
 │   ├── components/
-│   │   └── AuthCard.tsx          # Login, Registro, Verificación OTP y Frase BIP-39 (Private Wealth)
+│   │   └── AuthCard.tsx          # Login, Registro, OTP y Frase BIP-39 con ThemeToggle
 │   └── stores/
 │       └── useAuthStore.ts       # Sesión Supabase + vaultKey en RAM + recoveryPhrase efímera
 │
 ├── features/vault/
 │   ├── components/
-│   │   ├── VaultDashboard.tsx    # Header ébano, catálogo porcelana, 3 filtros en RAM y métricas
-│   │   ├── DocumentRow.tsx       # Fila Private Wealth: micro-sello, pill bronce topo, 3 acciones
-│   │   ├── FileUploadModal.tsx   # Modal drag & drop con visualizador de Pipeline ZK
-│   │   ├── DocumentPreviewModal.tsx # Modal centrado en portal: metadatos y copiado de huella SHA-256
-│   │   ├── DownloadAuthModal.tsx # Compuerta de autorización para contraseña de descarga en RAM
+│   │   ├── VaultDashboard.tsx    # Header INFINYX, catálogo de custodia, ThemeToggle y filtros
+│   │   ├── DocumentRow.tsx       # Fila adaptada con badges de versión y 3 acciones directas
+│   │   ├── FileUploadModal.tsx   # Modal drag & drop con barra minimalista de cifrado
+│   │   ├── DocumentPreviewModal.tsx # Modal centrado en portal: metadatos y copiado de SHA-256
+│   │   ├── DownloadAuthModal.tsx # Compuerta de autorización para contraseña en RAM
 │   │   └── DeleteDocumentModal.tsx  # Confirmación destructiva con autorización en RAM
 │   ├── stores/
 │   │   ├── useVaultStore.ts      # Catálogo + subida/descifrado + bitácora audit_logs
@@ -281,7 +292,13 @@ src/
 >>>>>>> dev
 │
 └── shared/
-    ├── lib/supabase.ts           # Cliente tipado createClient<Database>
+    ├── components/
+    │   ├── HexaMugenLogo.tsx     # Isotipo vectorial de doble hexágono en titanio y Seis Ojos
+    │   └── ThemeToggle.tsx       # Conmutador interactivo Sol / Luna (Modo Claro / Oscuro)
+    ├── stores/
+    │   └── useThemeStore.ts      # Gestor de tema con persistencia en localStorage
+    ├── lib/
+    │   └── supabase.ts           # Cliente tipado createClient<Database>
     └── types/
 <<<<<<< HEAD
         ├── database.ts           # Contrato del esquema public + VAULT_BUCKET = 'vault_files'
@@ -376,53 +393,40 @@ flowchart LR
 
 ---
 
-## 5. Sistema de diseño "Private Wealth"
+## 5. Sistema de diseño "Hexa-Mugen" y Tema Dual (Oscuro / Claro)
 
-La interfaz de usuario implementa el sistema de diseño **"Private Wealth"**, inspirado en la sobriedad, legibilidad y refinamiento de la banca privada internacional (Ginebra / Zúrich), combinando un 90 % de superficies claras de porcelana con acentos profundos en negro ébano y bronce topo.
+El sistema de diseño **"Hexa-Mugen"** de **INFINYX** combina precisión geométrica con la paleta de energía Azul *"Seis Ojos"* (*Six Eyes*), ofreciendo dos estilos visuales completos:
 
-### 5.1. Paleta de colores y tokens visuales
+1. **Modo Oscuro (*Obsidiana Abisal*)**: Profundidad cibernética en `#07090E`, tarjetas en titanio oscuro `#0D111A` y delineados energéticos luminosos.
+2. **Modo Claro (*Blanco Titanio / Cristalino*)**: Lienzo blanco de pizarra suave `#F8FAFC`, tarjetas en porcelana técnica `#FFFFFF`, bordes sutiles de acero `#E2E8F0` y tipografía de alto contraste `#0F172A`.
 
-| Elemento | Token / Hex | Clase Tailwind | Uso principal |
-|---|---|---|---|
-| **Lienzo principal (Fondo)** | `#F8F7F4` | `bg-[#F8F7F4]` | Fondo global de la aplicación (porcelana cálida) |
-| **Barra superior (Header)** | `#141413` | `bg-[#141413] border-b border-[#262523]` | Header institucional permanente en negro ébano |
-| **Tarjetas y Modales** | `#FFFFFF` | `bg-white border border-[#E6E4DD]` | Tarjetas de contenido, paneles de filtros y modales |
-| **Cabecera de tablas** | `#F5F4EF` | `bg-[#F5F4EF] text-[#6E6A63]` | Fila superior `<thead>` con tipografía de bajo impacto |
-| **Botón Primario (CTA)** | `#141413` | `bg-[#141413] hover:bg-[#2B2A27]` | Acciones de mayor jerarquía (+ Proteger documento, Confirmar) |
-| **Pill Bronce Topo sólido** | `#6E6053` | `bg-[#6E6053] text-white` | Insignias de versión (`v1`, `v2+`), sello Zero-Knowledge y RAM |
-| **Insignia Bronce suave** | `#F5F2EB` | `bg-[#F5F2EB] border-[#D8D0C5] text-[#5C5043]` | Contenedores de iconos, avisos de seguridad y tooltips |
-| **Texto de alto contraste** | `#181816` | `text-[#181816]` | Títulos, nombres de archivo y valores principales |
-| **Texto secundario** | `#6E6A63` | `text-[#6E6A63]` | Subtítulos, etiquetas, fechas y metadatos |
-| **Alerta destructiva** | `#DC2626` | `bg-red-50 border-red-200 text-red-900` | Alertas de eliminación y fallos criptográficos |
+### 5.1. Matriz de tokens y paleta de colores
 
-### 5.2. Pila tipográfica
+| Token / Elemento | Modo Oscuro (*Dark*) | Modo Claro (*Light*) | Aplicación / Rol |
+| :--- | :--- | :--- | :--- |
+| **Fondo Principal** | `#07090E` | `#F8FAFC` | Fondo de `body`, pantalla de inicio y dashboard |
+| **Tarjetas y Modales** | `#0D111A` / `#111827` | `#FFFFFF` | Superficie principal de contenido y ventanas modales |
+| **Cabeceras de Tabla / Paneles** | `#0A0E17` | `#F8FAFC` / `#F1F5F9` | Cabecera `<thead>`, cajas de código y avisos |
+| **Bordes de Contenedores** | `#1E293B` | `#E2E8F0` | Líneas de división y contornos de tarjeta |
+| **Texto Principal** | `#F8FAFC` | `#0F172A` | Títulos, nombres de documentos y valores clave |
+| **Texto Secundario** | `#94A3B8` | `#64748B` | Metadatos, fechas, tamaños y hashes |
+| **Azul Seis Ojos (Acento)** | `#38BDF8` (`sky-400`) | `#0284C7` (`sky-600`) | Iconos de acento, bordes activos y checkboxes |
+| **Núcleo Cristalino (Highlight)** | `#BAE6FD` (`sky-200`) | `#0369A1` (`sky-700`) | Punto focal del logo y texto de versión (`v1`, `v2+`) |
+| **Gradiente Primario (CTA)** | `from-[#0284C7] via-[#0EA5E9] to-[#38BDF8]` | `from-[#0284C7] via-[#0EA5E9] to-[#38BDF8]` | Botones principales de acción (+ Proteger documento, Desbloquear) |
 
-- **Títulos y Marca:** Tipografía editorial serif (`Newsreader`, Georgia, `'Times New Roman'`, serif) mediante la clase `.font-editorial` con tracking ajustado (`letter-spacing: -0.02em`).
-- **Interfaz y lectura general:** `Plus Jakarta Sans` y `Inter`, proporcionando alta legibilidad y nitidez en pantallas de alta densidad.
-- **Material criptográfico:** `JetBrains Mono` para huellas SHA-256, vectores IV, códigos OTP de 6 dígitos y frases BIP-39.
+### 5.2. Selector de Tema (`ThemeToggle`) y Persistencia
 
-### 5.3. Búsqueda y Filtros instantáneos en RAM
+- Gobernado por `useThemeStore.ts` y la clase `.dark` en `document.documentElement` (`darkMode: 'class'` en Tailwind).
+- La preferencia se almacena en `localStorage.getItem('infinyx-theme')`, preservándose entre sesiones y recargas de pestaña.
+- El conmutador se encuentra disponible tanto en la pantalla de autenticación (`AuthCard`) como en la cabecera principal (`VaultDashboard`).
 
-En `VaultDashboard.tsx`, los documentos custodiados se filtran y ordenan directamente en memoria RAM sin disparar consultas adicionales:
+### 5.3. Isotipo Vectorial Hexa-Mugen (`HexaMugenLogo.tsx`)
 
-1. **Buscador predictivo**: Coincidencia insensible a mayúsculas sobre el nombre del documento o la huella SHA-256.
-2. **Filtro de versión**:
-   - `all`: Todas las versiones registradas.
-   - `v1`: Versión original o inicial del archivo.
-   - `multi`: Archivos con múltiples versiones registradas (`v2+`).
-3. **Selector de orden**:
-   - `newest`: Orden cronológico inverso (más recientes primero).
-   - `largest`: Mayor tamaño de texto plano primero.
-   - `name`: Orden alfabético (A-Z).
+El isotipo representa la convergencia del infinito ($\infty$) mediante una estructura hexagonal facetada de titanio angulado con doble delineado y un prisma central flotante encendido con gradiente Azul Seis Ojos (`#BAE6FD` → `#38BDF8` → `#0284C7`). Su relleno se adapta automáticamente (`fill-white dark:fill-[#0D111A]`) para lucir impecable en ambos temas.
 
-### 5.4. Arquitectura de Modales Accesibles (Portales)
+### 5.4. Barra de Progreso Minimalista en Cifrado
 
-Todos los modales se renderizan en el `document.body` mediante `createPortal`, evitando cualquier recorte por scrollbars en tablas:
-
-- **FileUploadModal**: Pipeline visual reactivo de 4 pasos con porcentajes e iconos dinámicos.
-- **DocumentPreviewModal**: Cuadrícula de metadatos, visualización de huella completa y botón con feedback de copiado al portapapeles.
-- **DownloadAuthModal**: Verificación PBKDF2 para almacenar la contraseña temporal en RAM.
-- **DeleteDocumentModal**: Flujo destructivo con validación de seguridad integrada.
+El modal de subida de archivos (`FileUploadModal.tsx`) incorpora una barra de progreso limpia y compacta con cálculo de porcentaje dinámico (`0%`, `25%`, `50%`, `75%`, `100%`) y estado reactivo (*"Cifrando archivo…"*, *"Archivo cifrado y protegido"*, *"Error al procesar el archivo"*), eliminando tarjetas redundantes.
 
 ---
 
@@ -566,8 +570,8 @@ El script SQL en `supabase/migrations/20261019_security_hardening.sql` aplica tr
 
 ```bash
 # 1. Clonar el repositorio
-git clone <url-del-repo> tech-value
-cd tech-value
+git clone <url-del-repo> infinyx-vault
+cd infinyx-vault
 
 # 2. Instalar dependencias exactas
 pnpm install
@@ -606,7 +610,7 @@ El proyecto compila en modo estricto: `strict`, `noUncheckedIndexedAccess`, `noU
 7. Pulsar "Descargar archivo": la primera vez se abre `DownloadAuthModal` para crear la contraseña de descarga; las siguientes descargas de la misma pestaña son directas (vive en RAM).
 =======
 | `pnpm run dev` | Inicia el servidor de desarrollo Vite con HMR |
-| `pnpm run lint` | Ejecuta `oxlint` (validación de TypeScript y reglas de React) |
+| `pnpm run lint` | Ejecuta `oxlint` (validación estricta de TypeScript y reglas React) |
 | `pnpm run build` | Compilación estricta con `tsc -b` y empaquetado optimizado en `dist/` |
 | `pnpm run preview` | Sirve localmente la compilación de producción para validación |
 >>>>>>> dev
