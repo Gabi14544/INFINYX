@@ -1,23 +1,20 @@
 /**
  * DocumentRow.tsx
  * ---------------------------------------------------------------------------
- * Fila del catálogo con acciones por archivo:
+ * Fila del catálogo institucional "Private Wealth":
  *
- *   1) "Descargar archivo": botón con icono que ejecuta el flujo gateado
+ *   1) "Descargar archivo": botón sólido negro ébano con flujo gateado
  *      por la contraseña de descarga en RAM (vía `onDownload` del dashboard).
- *   2) "Visualizar": botón con icono que abre un modal centrado y limpio
- *      (`DocumentPreviewModal`) fuera del árbol de la tabla (portal a body),
- *      mostrando metadatos: tipo de archivo, huella SHA-256 completa con copiado,
- *      tamaño, versión y fecha de custodia.
- *   3) "Eliminar": botón destructivo con icono Trash que abre `DeleteDocumentModal`
- *      (portal a body) para confirmación irreversible y autorización en RAM.
- *
- * No hay popovers atrapados dentro de <td> que causen barras de scroll o desbordamientos.
+ *   2) "Visualizar": botón secundario porcelana/blanco que abre modal centrado
+ *      (`DocumentPreviewModal`) fuera de la tabla (portal a body), mostrando
+ *      metadatos, tipo de archivo y copiado de huella SHA-256.
+ *   3) "Eliminar": botón discreto con hover destructivo refinado que abre
+ *      `DeleteDocumentModal` (portal a body) para confirmación y autorización en RAM.
  * ---------------------------------------------------------------------------
  */
 
 import { useState } from 'react';
-import { Download, Eye, FileText, Loader2, Trash2 } from 'lucide-react';
+import { Download, Eye, FileText, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
 import type { VaultDocument } from '../../../shared/types';
 import DeleteDocumentModal from './DeleteDocumentModal';
 import DocumentPreviewModal from './DocumentPreviewModal';
@@ -37,56 +34,66 @@ export default function DocumentRow({ doc, downloading, onDownload }: DocumentRo
 
   return (
     <>
-      <tr className="border-t border-zinc-800 transition hover:bg-slate-800/40">
-        <td className="px-5 py-3.5">
+      <tr className="transition hover:bg-[#FAF9F5]">
+        {/* Columna Nombre del archivo */}
+        <td className="px-6 py-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 ring-1 ring-blue-500/20">
-              <FileText className="h-4 w-4 text-blue-400" />
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#E6E4DD] bg-[#F8F7F4] text-[#5C5043]">
+              <FileText className="h-4 w-4" />
             </span>
-            <span
-              className="max-w-[240px] truncate text-sm font-medium text-white sm:max-w-xs"
-              title={doc.name}
-            >
-              {doc.name}
-            </span>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <span
+                className="max-w-[220px] truncate text-sm font-medium text-[#181816] sm:max-w-xs md:max-w-sm"
+                title={doc.name}
+              >
+                {doc.name}
+              </span>
+              <span title="Cifrado AES-GCM-256 verificado" className="inline-flex shrink-0">
+                <ShieldCheck className="h-4 w-4 text-[#6E6053]" />
+              </span>
+            </div>
           </div>
         </td>
 
-        <td className="whitespace-nowrap px-4 py-3.5">
-          <span className="inline-flex items-center rounded-md border border-zinc-700 bg-zinc-800 px-2 py-0.5 font-mono text-xs text-zinc-300">
+        {/* Columna Versión (Pastilla Bronce Topo) */}
+        <td className="whitespace-nowrap px-4 py-4">
+          <span className="inline-flex items-center rounded-full bg-[#6E6053] px-2.5 py-0.5 font-mono text-xs font-medium text-white shadow-2xs">
             v{version?.version_number ?? '—'}
           </span>
         </td>
 
-        <td className="whitespace-nowrap px-4 py-3.5">
+        {/* Columna Huella SHA-256 */}
+        <td className="whitespace-nowrap px-4 py-4">
           {version ? (
-            <span className="font-mono text-xs text-zinc-400" title={version.sha256_hash}>
+            <span className="font-mono text-xs text-[#6E6A63]" title={version.sha256_hash}>
               {shortHash(version.sha256_hash)}
             </span>
           ) : (
-            <span className="text-xs text-zinc-600">sin versión</span>
+            <span className="text-xs text-[#9E9A91]">sin versión</span>
           )}
         </td>
 
-        <td className="whitespace-nowrap px-4 py-3.5 text-sm text-zinc-400">
+        {/* Columna Tamaño */}
+        <td className="whitespace-nowrap px-4 py-4 text-sm text-[#4A4740]">
           {version ? formatSize(version.file_size) : '—'}
         </td>
 
-        <td className="whitespace-nowrap px-4 py-3.5 text-sm text-zinc-400">
+        {/* Columna Fecha */}
+        <td className="whitespace-nowrap px-4 py-4 text-sm text-[#4A4740]">
           {version ? formatDate(version.created_at) : formatDate(doc.createdAt)}
         </td>
 
-        {/* Columna de acciones: EXACTAMENTE 2 opciones. */}
-        <td className="whitespace-nowrap px-5 py-3.5">
+        {/* Columna de Acciones (3 botones limpios y elegantes) */}
+        <td className="whitespace-nowrap px-6 py-4">
           <div className="flex items-center justify-end gap-2">
-            {/* Acción 1/2: Descargar archivo */}
+            {/* 1. Descargar archivo */}
             <button
               type="button"
               onClick={() => onDownload(doc)}
               disabled={!version || isBusy}
               title="Descargar archivo"
               aria-label={`Descargar archivo ${doc.name}`}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#141413] bg-[#141413] px-3 py-1.5 text-xs font-medium text-white shadow-2xs transition hover:bg-[#2B2A27] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isBusy ? (
                 <>
@@ -96,31 +103,31 @@ export default function DocumentRow({ doc, downloading, onDownload }: DocumentRo
               ) : (
                 <>
                   <Download className="h-3.5 w-3.5" />
-                  Descargar archivo
+                  Descargar
                 </>
               )}
             </button>
 
-            {/* Acción 2/3: Visualizar (abre el modal centrado) */}
+            {/* 2. Visualizar */}
             <button
               type="button"
               onClick={() => setPreviewOpen(true)}
               aria-label={`Visualizar ${doc.name}`}
               title="Visualizar"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#DCD9D0] bg-white px-3 py-1.5 text-xs font-medium text-[#181816] shadow-2xs transition hover:bg-[#F5F4EF]"
             >
-              <Eye className="h-3.5 w-3.5" />
+              <Eye className="h-3.5 w-3.5 text-[#5C5043]" />
               Visualizar
             </button>
 
-            {/* Acción 3/3: Eliminar documento (confirmación con autorización en RAM) */}
+            {/* 3. Eliminar */}
             <button
               type="button"
               onClick={() => setDeleteOpen(true)}
               disabled={isBusy}
               aria-label={`Eliminar ${doc.name}`}
               title="Eliminar documento"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E6E4DD] bg-white px-2.5 py-1.5 text-xs font-medium text-[#8C867B] shadow-2xs transition hover:border-red-300 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Eliminar
