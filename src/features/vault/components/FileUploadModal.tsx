@@ -5,10 +5,7 @@ import {
   Check,
   Cpu,
   FileUp,
-  Fingerprint,
-  HardDrive,
   Loader2,
-  Lock,
   ShieldCheck,
   Upload,
   X,
@@ -24,52 +21,13 @@ interface FileUploadModalProps {
   onClose: () => void;
 }
 
-interface PipelineStep {
-  id: Exclude<UploadStatus, 'idle' | 'error'>;
-  order: number;
-  title: string;
-  detail: string;
-  icon: typeof Cpu;
-}
-
-const PIPELINE_STEPS: PipelineStep[] = [
-  {
-    id: 'reading',
-    order: 1,
-    title: 'Lectura en memoria local',
-    detail: 'El archivo se carga en memoria RAM. Nada sale del navegador.',
-    icon: HardDrive,
-  },
-  {
-    id: 'hashing',
-    order: 2,
-    title: 'Cálculo de huella SHA-256',
-    detail: 'Huella del texto plano como referencia criptográfica de integridad.',
-    icon: Fingerprint,
-  },
-  {
-    id: 'encrypting',
-    order: 3,
-    title: 'Cifrado AES-GCM-256 con IV único',
-    detail: 'Cifrado autenticado con tu clave de bóveda en RAM.',
-    icon: Lock,
-  },
-  {
-    id: 'uploading',
-    order: 4,
-    title: 'Transmisión segura del blob .enc a Supabase',
-    detail: 'Sólo viaja ciphertext opaco. El servidor es ciego.',
-    icon: Upload,
-  },
-];
-
 const STEP_INDEX: Record<UploadStatus, number> = {
   idle: 0,
   reading: 1,
   hashing: 2,
   encrypting: 3,
   uploading: 4,
-  done: 5,
+  done: 4,
   error: -1,
 };
 
@@ -111,7 +69,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
       ? 100
       : uploadStatus === 'idle' || uploadStatus === 'error'
         ? 0
-        : Math.round((activeIndex / PIPELINE_STEPS.length) * 100);
+        : Math.min(100, Math.round((activeIndex / 4) * 100));
 
   const pickFile = (candidate: File | undefined | null) => {
     if (!candidate || busy) return;
@@ -158,24 +116,24 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
       role="dialog"
       aria-modal="true"
       aria-label="Proteger nuevo documento"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs dark:bg-black/80"
       onClick={handleClose}
     >
       <div
-        className="w-full max-w-xl overflow-hidden rounded-2xl border border-[#E6E4DD] bg-white text-[#181816] shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl ring-1 ring-sky-500/10 transition-colors dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:shadow-black/80 dark:ring-[#38BDF8]/15"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabecera */}
-        <div className="flex items-center justify-between border-b border-[#EFECE6] px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-[#1E293B]">
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] text-[#6E6053]">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-[#0284C7] dark:border-[#38BDF8]/30 dark:bg-[#38BDF8]/10 dark:text-[#38BDF8]">
               <FileUp className="h-5 w-5" />
             </span>
             <div>
-              <h3 className="font-editorial text-lg font-semibold text-[#181816]">
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F8FAFC]">
                 Proteger nuevo documento
               </h3>
-              <p className="text-xs text-[#6E6A63]">
+              <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                 Cifrado local antes de cualquier transmisión al servidor
               </p>
             </div>
@@ -185,13 +143,14 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             onClick={handleClose}
             disabled={busy}
             aria-label="Cerrar"
-            className="rounded-lg p-1.5 text-[#8C867B] transition hover:bg-[#F3F1EC] hover:text-[#181816] disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#94A3B8] dark:hover:bg-[#111827] dark:hover:text-[#F8FAFC]"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="space-y-5 px-6 py-5">
+        {/* Cuerpo central con scroll vertical */}
+        <div className="space-y-5 overflow-y-auto px-6 py-5">
           {/* Zona Drag & Drop */}
           <div
             onDragOver={(e) => {
@@ -203,10 +162,10 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             onClick={() => !busy && inputRef.current?.click()}
             className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition ${
               dragging
-                ? 'border-[#6E6053] bg-[#F5F2EB]'
+                ? 'border-sky-500 bg-sky-50 dark:border-[#38BDF8] dark:bg-[#38BDF8]/10'
                 : file
-                  ? 'border-[#6E6053] bg-[#FAF9F6]'
-                  : 'border-[#D5D1C8] bg-[#FAF9F6] hover:border-[#6E6053] hover:bg-[#F5F3EE]'
+                  ? 'border-sky-400/60 bg-slate-50 dark:border-[#38BDF8]/60 dark:bg-[#07090E]'
+                  : 'border-slate-200 bg-slate-50 hover:border-sky-400 hover:bg-slate-100/60 dark:border-[#1E293B] dark:bg-[#07090E] dark:hover:border-[#38BDF8]/50 dark:hover:bg-[#07090E]/80'
             } ${busy ? 'pointer-events-none opacity-70' : ''}`}
           >
             <input
@@ -216,22 +175,22 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
               onChange={(e) => pickFile(e.target.files?.[0])}
               disabled={busy}
             />
-            <Upload className="h-8 w-8 text-[#6E6053]" />
+            <Upload className="h-8 w-8 text-[#0284C7] dark:text-[#38BDF8]" />
             {file ? (
               <>
-                <p className="max-w-full truncate text-sm font-semibold text-[#181816]">
+                <p className="max-w-full truncate text-sm font-semibold text-slate-900 dark:text-[#F8FAFC]">
                   {file.name}
                 </p>
-                <p className="text-xs text-[#6E6A63]">
+                <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                   {(file.size / 1024).toFixed(1)} KB · Haz clic para cambiar archivo
                 </p>
               </>
             ) : (
               <>
-                <p className="text-sm font-medium text-[#181816]">
+                <p className="text-sm font-medium text-slate-900 dark:text-[#F8FAFC]">
                   Arrastra tu archivo aquí o haz clic para seleccionarlo
                 </p>
-                <p className="text-xs text-[#6E6A63]">
+                <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                   El texto plano nunca abandona este dispositivo sin cifrar · Máx. 50 MB
                 </p>
               </>
@@ -242,101 +201,40 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
           {(localError || (failed && vaultError)) && (
             <div
               role="alert"
-              className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
+              className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-50 px-3.5 py-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200"
             >
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
               <span className="break-words">{localError || (failed ? vaultError : null)}</span>
             </div>
           )}
 
-          {/* Pipeline Zero-Knowledge en tiempo real */}
+          {/* Barra de progreso minimalista y elegante */}
           {(busy || finished || failed) && (
-            <div className="space-y-3">
+            <div className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-[#1E293B] dark:bg-[#07090E]/90">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold uppercase tracking-wider text-[#6E6A63]">
-                  Pipeline Zero-Knowledge
+                <span className="inline-flex items-center gap-2 font-medium text-sky-800 dark:text-[#BAE6FD]">
+                  {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0284C7] dark:text-[#38BDF8]" />}
+                  {finished && <ShieldCheck className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />}
+                  {failed
+                    ? 'Error al procesar el archivo'
+                    : finished
+                      ? 'Archivo cifrado y protegido'
+                      : 'Cifrando archivo…'}
                 </span>
-                <span
-                  className={`font-semibold ${
-                    finished ? 'text-[#6E6053]' : failed ? 'text-red-600' : 'text-[#141413]'
-                  }`}
-                >
+                <span className="font-mono font-semibold text-[#0284C7] dark:text-[#38BDF8]">
                   {finished ? '100%' : `${progressPct}%`}
                 </span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-[#EFECE6]">
+              <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-[#1E293B]">
                 <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    finished
-                      ? 'bg-[#6E6053]'
-                      : failed
-                        ? 'bg-red-600'
-                        : 'bg-[#141413]'
+                  className={`h-full rounded-full transition-all duration-500 ease-out ${
+                    failed
+                      ? 'bg-red-500'
+                      : 'bg-gradient-to-r from-[#0284C7] via-[#38BDF8] to-[#BAE6FD] shadow-[0_0_12px_rgba(56,189,248,0.6)]'
                   }`}
-                  style={{ width: `${failed ? 100 : progressPct}%` }}
+                  style={{ width: `${failed ? 100 : finished ? 100 : progressPct}%` }}
                 />
               </div>
-
-              <ol className="space-y-2">
-                {PIPELINE_STEPS.map((step) => {
-                  const done =
-                    finished || (activeIndex > 0 && step.order < activeIndex);
-                  const active =
-                    !finished && !failed && step.order === activeIndex;
-                  const pending =
-                    !done && !active && !(failed && step.order === activeIndex);
-                  const Icon = step.icon;
-                  return (
-                    <li
-                      key={step.id}
-                      className={`flex items-start gap-3 rounded-lg border px-3.5 py-2.5 transition ${
-                        active
-                          ? 'border-[#6E6053] bg-[#FAF9F6]'
-                          : done
-                            ? 'border-[#D8D0C5] bg-[#F5F2EB]'
-                            : failed && step.order === activeIndex
-                              ? 'border-red-200 bg-red-50'
-                              : 'border-[#E6E4DD] bg-[#F8F7F4]'
-                      }`}
-                    >
-                      <span
-                        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ${
-                          done
-                            ? 'bg-[#6E6053] text-white ring-[#6E6053]'
-                            : active
-                              ? 'bg-[#141413] text-white ring-[#141413]'
-                              : 'bg-[#F3F1EC] text-[#8C867B] ring-[#E6E4DD]'
-                        }`}
-                      >
-                        {done ? (
-                          <Check className="h-4 w-4" />
-                        ) : active ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Icon className="h-4 w-4" />
-                        )}
-                      </span>
-                      <div className="min-w-0">
-                        <p
-                          className={`text-sm font-medium ${
-                            pending && !failed ? 'text-[#8C867B]' : 'text-[#181816]'
-                          }`}
-                        >
-                          Paso {step.order}: {step.title}
-                        </p>
-                        <p className="text-xs text-[#6E6A63]">{step.detail}</p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-
-              {finished && (
-                <div className="flex items-center gap-2.5 rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] px-3.5 py-3 text-sm text-[#5C5043]">
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-[#6E6053]" />
-                  Documento cifrado y registrado en la bóveda. Sólo tú puedes descifrarlo.
-                </div>
-              )}
             </div>
           )}
 
@@ -346,9 +244,9 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2B2A27]"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 dark:text-[#07090E]"
               >
-                <Check className="h-4 w-4" />
+                <Check className="h-4 w-4 text-white dark:text-[#07090E]" />
                 Cerrar y ver en catálogo
               </button>
             ) : (
@@ -357,7 +255,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                   type="button"
                   onClick={handleClose}
                   disabled={busy}
-                  className="flex-1 rounded-lg border border-[#DCD9D0] bg-white px-4 py-2.5 text-sm font-medium text-[#181816] transition hover:bg-[#F3F1EC] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex-1 rounded-lg border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#F8FAFC] dark:hover:border-[#38BDF8]/40 dark:hover:text-[#BAE6FD] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -365,16 +263,16 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                   type="button"
                   onClick={handleUpload}
                   disabled={!file || busy || !vaultKey}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2B2A27] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#07090E]"
                 >
                   {busy ? (
                     <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-4 w-4 animate-spin text-white dark:text-[#07090E]" />
                       Protegiendo…
                     </>
                   ) : (
                     <>
-                      <Cpu className="h-4 w-4" />
+                      <Cpu className="h-4 w-4 text-white dark:text-[#07090E]" />
                       Cifrar y subir
                     </>
                   )}
@@ -384,7 +282,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
           </div>
 
           {!vaultKey && (
-            <p className="text-center text-xs text-[#8C6D44]">
+            <p className="text-center text-xs text-amber-600 dark:text-amber-400">
               La bóveda está bloqueada: debes iniciar sesión para subir documentos.
             </p>
           )}

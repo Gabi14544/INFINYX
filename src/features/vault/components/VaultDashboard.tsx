@@ -1,10 +1,11 @@
 /**
  * VaultDashboard.tsx
  * ---------------------------------------------------------------------------
- * Dashboard institucional "Private Wealth" de la bóveda:
+ * Dashboard institucional "INFINYX" de la bóveda:
  *   1) "Descargar archivo" (flujo gateado por la contraseña en RAM).
  *   2) "Visualizar" (modal centrado y limpio con metadatos y copiado de huella).
  *   3) "Eliminar" (modal de confirmación irreversible y autorización en RAM).
+ *   4) Soporte completo de tema dual (Modo Claro / Modo Oscuro).
  *
  * Flujo de descarga
  * -----------------
@@ -29,6 +30,8 @@ import {
   Search,
   ShieldCheck,
 } from 'lucide-react';
+import HexaMugenLogo from '../../../shared/components/HexaMugenLogo';
+import ThemeToggle from '../../../shared/components/ThemeToggle';
 import { useAuthStore } from '../../auth/stores/useAuthStore';
 import { toVersionDescriptor, useVaultStore } from '../stores/useVaultStore';
 import { useDownloadAuthStore } from '../stores/useDownloadAuthStore';
@@ -48,7 +51,6 @@ export default function VaultDashboard() {
   const [versionFilter, setVersionFilter] = useState<'all' | 'v1' | 'multi'>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'largest' | 'name'>('newest');
 
-  const user = useAuthStore((s) => s.user);
   const vaultKey = useAuthStore((s) => s.vaultKey);
   const signOut = useAuthStore((s) => s.signOut);
 
@@ -154,59 +156,37 @@ export default function VaultDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F7F4] text-[#181816]">
-      {/* 1. Barra Superior en Negro Ébano (<header>) */}
-      <header className="sticky top-0 z-10 border-b border-[#262523] bg-[#141413] text-white">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-          {/* Izquierda (Marca) */}
+    <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] transition-colors dark:bg-[#07090E] dark:text-[#F8FAFC]">
+      {/* 1. Barra Superior (<header>) */}
+      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur-md transition-colors dark:border-[#1E293B] dark:bg-[#07090E]/90">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+          {/* Izquierda (Marca INFINYX) */}
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#24221F] ring-1 ring-[#3A3630]">
-              <ShieldCheck className="h-5 w-5 text-[#C8B69E]" />
-            </span>
+            <HexaMugenLogo className="h-8 w-12" />
             <div className="flex flex-col">
-              <span className="font-editorial text-base font-semibold tracking-tight text-white">
-                Tech-Value Vault
+              <span className="text-base font-bold tracking-wider text-[#0F172A] dark:text-[#F8FAFC]">
+                INFINYX
               </span>
-              <span className="text-[10px] uppercase tracking-wider text-[#8C867B]">
-                Private Wealth Custody
+              <span className="text-[11px] text-slate-500 dark:text-[#94A3B8]">
+                Bóveda de Seguridad
               </span>
             </div>
           </div>
 
-          {/* Centro (Navegación contextual limpia) */}
-          <nav className="hidden items-center gap-6 md:flex">
-            <span className="border-b-2 border-[#C8B69E] pb-1 text-sm font-medium text-white">
+          {/* Centro (Indicador activo Bóveda Documental) */}
+          <div className="flex items-center justify-center">
+            <span className="border-b-2 border-[#0284C7] py-1 text-sm font-medium text-sky-800 dark:border-[#38BDF8] dark:text-[#BAE6FD]">
               Bóveda Documental
             </span>
-            <span className="inline-flex items-center gap-1.5 pb-1 text-xs text-[#8C867B]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#6E6053]" />
-              Cifrado AES-GCM-256
-            </span>
-            <span className="inline-flex items-center gap-1.5 pb-1 text-xs text-[#8C867B]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#6E6053]" />
-              Registro SHA-256
-            </span>
-          </nav>
+          </div>
 
-          {/* Derecha (Estado en RAM + Usuario + Cerrar Sesión) */}
-          <div className="flex items-center gap-3">
-            <span className="inline-flex items-center gap-2 rounded-md border border-[#857566] bg-[#6E6053] px-3 py-1 text-xs font-medium text-white shadow-sm">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#E5D7C5] opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#FAF6EE]" />
-              </span>
-              Bóveda Cifrada en RAM
-            </span>
-            <span
-              className="hidden max-w-[190px] truncate text-xs text-[#A8A29A] sm:inline"
-              title={user?.email ?? ''}
-            >
-              {user?.email ?? 'Sesión corporativa'}
-            </span>
+          {/* Derecha (Conmutador de tema + Cerrar Sesión) */}
+          <div className="flex items-center gap-2.5">
+            <ThemeToggle />
             <button
               type="button"
               onClick={handleSignOut}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#33312E] bg-[#1F1E1C] px-3 py-1.5 text-xs font-medium text-[#E6E2DC] transition hover:bg-[#2C2A27]"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-[#38BDF8]/40 hover:bg-slate-200 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:hover:bg-[#111827]"
             >
               <LogOut className="h-3.5 w-3.5" />
               Cerrar Sesión
@@ -217,32 +197,26 @@ export default function VaultDashboard() {
 
       {/* Contenido principal */}
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* 2. Cabecera del Dashboard (Título + Sello Bronce Topo + Botón Ébano) */}
+        {/* 2. Cabecera del Dashboard */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="font-editorial text-3xl font-semibold tracking-tight text-[#181816] sm:text-4xl">
-              Bóveda Documental Institucional
+            <h1 className="text-2xl font-semibold tracking-tight text-[#0F172A] sm:text-3xl dark:text-[#F8FAFC]">
+              Documentos protegidos
             </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-3">
-              <p className="text-sm text-[#6E6A63]">
-                {documents.length === 0
-                  ? 'Tus archivos cifrados aparecerán aquí.'
-                  : `${documents.length} documento${documents.length === 1 ? '' : 's'} bajo custodia Zero-Knowledge.`}
-              </p>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#6E6053] px-3 py-0.5 text-xs font-medium text-white shadow-2xs">
-                <ShieldCheck className="h-3.5 w-3.5" />
-                Protegido con AES-GCM-256 · Zero-Knowledge
-              </span>
-            </div>
+            <p className="mt-2 text-sm text-slate-500 dark:text-[#94A3B8]">
+              {documents.length === 0
+                ? 'Tus archivos cifrados aparecerán aquí.'
+                : `${documents.length} documento${documents.length === 1 ? '' : 's'} en custodia`}
+            </p>
           </div>
 
           <button
             type="button"
             onClick={() => setUploadOpen(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#2B2A27]"
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 dark:text-[#07090E]"
           >
-            <Plus className="h-4 w-4" />
-            + Proteger Nuevo Documento
+            <Plus className="h-4 w-4 shrink-0" />
+            <span>Proteger Nuevo Documento</span>
           </button>
         </div>
 
@@ -250,13 +224,13 @@ export default function VaultDashboard() {
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-12">
           {/* 1. Buscador */}
           <div className="relative sm:col-span-6 lg:col-span-6">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9E9A91]" />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-[#64748B]" />
             <input
               type="text"
               placeholder="Buscar por nombre de documento o huella SHA-256…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-[#DCD9D0] bg-white py-2 pl-9 pr-3.5 text-sm text-[#181816] placeholder:text-[#9E9A91] outline-none transition focus:border-[#6E6053] focus:ring-2 focus:ring-[#6E6053]/15"
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3.5 text-sm text-[#0F172A] placeholder:text-slate-400 outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:placeholder:text-[#64748B] dark:focus:border-[#38BDF8] dark:focus:ring-[#38BDF8]/20"
             />
           </div>
 
@@ -265,7 +239,7 @@ export default function VaultDashboard() {
             <select
               value={versionFilter}
               onChange={(e) => setVersionFilter(e.target.value as 'all' | 'v1' | 'multi')}
-              className="w-full rounded-lg border border-[#DCD9D0] bg-white px-3.5 py-2 text-sm text-[#181816] outline-none transition focus:border-[#6E6053] focus:ring-2 focus:ring-[#6E6053]/15"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm text-[#0F172A] outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:focus:border-[#38BDF8] dark:focus:ring-[#38BDF8]/20"
             >
               <option value="all">Todas las versiones</option>
               <option value="v1">Versión inicial (v1)</option>
@@ -278,7 +252,7 @@ export default function VaultDashboard() {
             <select
               value={sortOrder}
               onChange={(e) => setSortOrder(e.target.value as 'newest' | 'largest' | 'name')}
-              className="w-full rounded-lg border border-[#DCD9D0] bg-white px-3.5 py-2 text-sm text-[#181816] outline-none transition focus:border-[#6E6053] focus:ring-2 focus:ring-[#6E6053]/15"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm text-[#0F172A] outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:focus:border-[#38BDF8] dark:focus:ring-[#38BDF8]/20"
             >
               <option value="newest">Más recientes primero</option>
               <option value="largest">Mayor tamaño</option>
@@ -289,24 +263,23 @@ export default function VaultDashboard() {
 
         {/* Advertencia informativa de contraseña en RAM */}
         {downloadSessionPassword === null && documents.length > 0 && (
-          <p className="mt-4 rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] px-3.5 py-2.5 text-xs leading-relaxed text-[#5C5043]">
+          <p className="mt-4 rounded-lg border border-slate-200 bg-slate-100 px-3.5 py-2.5 text-xs leading-relaxed text-slate-600 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#94A3B8]">
             Las descargas requieren tu contraseña de descarga: se solicitará una vez por pestaña y
             vivirá sólo en la memoria RAM hasta recargar o cerrar sesión.
           </p>
         )}
 
-        {/* Notificación de error si existe */}
         {error && (
           <div
             role="alert"
-            className="mt-5 flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
+            className="mt-5 flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-50 px-3.5 py-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200"
           >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
             <span className="flex-1 break-words">{error}</span>
             <button
               type="button"
               onClick={clearError}
-              className="rounded px-1.5 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100"
+              className="rounded px-1.5 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-500/20"
             >
               Descartar
             </button>
@@ -314,51 +287,51 @@ export default function VaultDashboard() {
         )}
 
         {/* 4. Tarjeta Principal del Catálogo (<section>) */}
-        <section className="mt-6 overflow-hidden rounded-2xl border border-[#E6E4DD] bg-white shadow-[0_6px_28px_rgba(20,20,19,0.04)]">
+        <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl dark:border-[#1E293B] dark:bg-[#0D111A] dark:shadow-2xl dark:shadow-black/60">
           {/* Encabezado interno de la tarjeta */}
-          <div className="flex items-center justify-between border-b border-[#EFECE6] px-6 py-4">
-            <h2 className="text-base font-semibold text-[#181816]">
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-[#1E293B]">
+            <h2 className="text-base font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
               Documentos Recientes y de Alto Valor
             </h2>
             {documents.length > 0 && (
-              <span className="text-xs text-[#6E6A63]">
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">
                 Mostrando {filteredDocuments.length} de {documents.length}
               </span>
             )}
           </div>
 
           {isLoading && documents.length === 0 ? (
-            <div className="flex items-center justify-center gap-2.5 px-6 py-16 text-sm text-[#6E6A63]">
-              <Loader2 className="h-5 w-5 animate-spin text-[#6E6053]" />
+            <div className="flex items-center justify-center gap-2.5 px-6 py-16 text-sm text-slate-500 dark:text-[#94A3B8]">
+              <Loader2 className="h-5 w-5 animate-spin text-[#0284C7] dark:text-[#38BDF8]" />
               Descifrando catálogo de la bóveda…
             </div>
           ) : documents.length === 0 ? (
             <div className="flex flex-col items-center px-6 py-16 text-center">
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[#D8D0C5] bg-[#F5F2EB] text-[#6E6053] shadow-xs">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-sky-200 bg-sky-50 text-[#0284C7] shadow-sm dark:border-[#38BDF8]/30 dark:bg-[#38BDF8]/10 dark:text-[#38BDF8] dark:shadow-lg dark:shadow-sky-500/10">
                 <FolderOpen className="h-7 w-7" />
               </span>
-              <h3 className="font-editorial mt-4 text-xl font-semibold text-[#181816]">
+              <h3 className="mt-4 text-xl font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
                 Tu bóveda está vacía
               </h3>
-              <p className="mt-1 max-w-sm text-sm text-[#6E6A63]">
+              <p className="mt-1 max-w-sm text-sm text-slate-500 dark:text-[#94A3B8]">
                 Comienza resguardando tu primer documento protegido bajo cifrado de grado militar
                 AES-GCM-256.
               </p>
               <button
                 type="button"
                 onClick={() => setUploadOpen(true)}
-                className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-[#2B2A27]"
+                className="mt-5 inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 dark:text-[#07090E]"
               >
-                <Plus className="h-4 w-4" />
-                Proteger Nuevo Documento
+                <Plus className="h-4 w-4 shrink-0" />
+                <span>Proteger Nuevo Documento</span>
               </button>
             </div>
           ) : filteredDocuments.length === 0 ? (
             <div className="flex flex-col items-center px-6 py-12 text-center">
-              <p className="text-sm font-medium text-[#181816]">
+              <p className="text-sm font-medium text-[#0F172A] dark:text-[#F8FAFC]">
                 No se encontraron documentos con los filtros seleccionados
               </p>
-              <p className="mt-1 text-xs text-[#6E6A63]">
+              <p className="mt-1 text-xs text-slate-500 dark:text-[#94A3B8]">
                 Prueba ajustando el término de búsqueda o restableciendo los selectores.
               </p>
               <button
@@ -368,7 +341,7 @@ export default function VaultDashboard() {
                   setVersionFilter('all');
                   setSortOrder('newest');
                 }}
-                className="mt-3 rounded-lg border border-[#DCD9D0] bg-white px-3 py-1.5 text-xs font-medium text-[#181816] hover:bg-[#F3F1EC]"
+                className="mt-3 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#F8FAFC] dark:hover:border-[#38BDF8]/40 dark:hover:text-[#BAE6FD]"
               >
                 Limpiar filtros
               </button>
@@ -377,7 +350,7 @@ export default function VaultDashboard() {
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr className="border-b border-[#E6E4DD] bg-[#F5F4EF] text-[11px] font-semibold uppercase tracking-wider text-[#6E6A63]">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:border-[#1E293B] dark:bg-[#0A0E17] dark:text-[#94A3B8]">
                     <th scope="col" className="px-6 py-3.5 font-semibold">
                       Nombre del archivo
                     </th>
@@ -401,7 +374,7 @@ export default function VaultDashboard() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#EFECE6]">
+                <tbody className="divide-y divide-slate-200 dark:divide-[#1E293B]/70">
                   {filteredDocuments.map((doc) => (
                     <DocumentRow
                       key={doc.id}
@@ -417,8 +390,8 @@ export default function VaultDashboard() {
         </section>
 
         {/* Nota pie de página */}
-        <p className="mt-4 flex items-center gap-1.5 text-xs text-[#8C867B]">
-          <ShieldCheck className="h-3.5 w-3.5 text-[#6E6053]" />
+        <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-500 dark:text-[#94A3B8]">
+          <ShieldCheck className="h-3.5 w-3.5 text-[#0284C7] dark:text-[#38BDF8]" />
           La integridad SHA-256 se verifica tras cada descifrado. La clave vive sólo en la RAM de
           esta pestaña.
         </p>

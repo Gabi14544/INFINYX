@@ -2,7 +2,7 @@
  * DocumentPreviewModal.tsx
  * ---------------------------------------------------------------------------
  * Modal centrado y accesible para visualizar los metadatos de custodia de un
- * documento Zero-Knowledge (tema Private Wealth):
+ * documento Zero-Knowledge (tema INFINYX / Hexa-Mugen con soporte Dual):
  *  - Nombre del archivo
  *  - Versión
  *  - Huella SHA-256 completa con botón de copiado rápido al portapapeles
@@ -17,7 +17,7 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Copy, Eye, ShieldCheck, X } from 'lucide-react';
+import { Check, Copy, Eye, X } from 'lucide-react';
 import type { VaultDocument } from '../../../shared/types';
 import { formatDateTime, formatSize } from '../utils/formatters';
 
@@ -72,24 +72,24 @@ export default function DocumentPreviewModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="preview-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs dark:bg-black/80"
       onClick={handleClose}
     >
       <div
-        className="w-full max-w-lg overflow-hidden rounded-2xl border border-[#E6E4DD] bg-white text-[#181816] shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl ring-1 ring-sky-500/10 transition-colors dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:shadow-black/80 dark:ring-[#38BDF8]/15"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabecera */}
-        <div className="flex items-center justify-between border-b border-[#EFECE6] px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-[#1E293B]">
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] text-[#6E6053]">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-[#0284C7] dark:border-[#38BDF8]/30 dark:bg-[#38BDF8]/10 dark:text-[#38BDF8]">
               <Eye className="h-5 w-5" />
             </span>
             <div>
-              <h3 id="preview-modal-title" className="font-editorial text-lg font-semibold text-[#181816]">
+              <h3 id="preview-modal-title" className="text-lg font-semibold text-slate-900 dark:text-[#F8FAFC]">
                 Vista previa en custodia
               </h3>
-              <p className="text-xs text-[#6E6A63]">
+              <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                 Metadatos verificados bajo arquitectura Zero-Knowledge
               </p>
             </div>
@@ -98,71 +98,71 @@ export default function DocumentPreviewModal({
             type="button"
             onClick={handleClose}
             aria-label="Cerrar modal"
-            className="rounded-lg p-1.5 text-[#8C867B] transition hover:bg-[#F3F1EC] hover:text-[#181816]"
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:text-[#94A3B8] dark:hover:bg-[#111827] dark:hover:text-[#F8FAFC]"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Cuerpo con metadatos */}
-        <div className="space-y-4 px-6 py-5">
+        {/* Cuerpo con metadatos y scroll */}
+        <div className="space-y-4 overflow-y-auto px-6 py-5">
           {/* Nombre del archivo */}
           <div>
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-[#6E6A63]">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-[#94A3B8]">
               Nombre del archivo
             </span>
-            <p className="mt-1 break-all text-base font-semibold text-[#181816]" title={doc.name}>
+            <p className="mt-1 break-all text-base font-semibold text-slate-900 dark:text-[#F8FAFC]" title={doc.name}>
               {doc.name}
             </p>
           </div>
 
           {/* Cuadrícula de metadatos clave */}
-          <div className="grid grid-cols-2 gap-3 rounded-xl border border-[#E6E4DD] bg-[#F8F7F4] p-3.5">
+          <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 dark:border-[#1E293B] dark:bg-[#07090E]">
             <div>
-              <span className="text-xs text-[#6E6A63]">Versión</span>
-              <p className="mt-0.5 font-mono text-sm font-semibold text-[#181816]">
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">Versión</span>
+              <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700 dark:text-[#BAE6FD]">
                 v{version?.version_number ?? '—'}
               </p>
             </div>
             <div>
-              <span className="text-xs text-[#6E6A63]">Tamaño</span>
-              <p className="mt-0.5 text-sm font-semibold text-[#181816]">
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">Tamaño</span>
+              <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-[#F8FAFC]">
                 {version ? formatSize(version.file_size) : '—'}
               </p>
             </div>
             <div>
-              <span className="text-xs text-[#6E6A63]">Tipo MIME</span>
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">Tipo MIME</span>
               <p
-                className="mt-0.5 truncate font-mono text-sm text-[#4A4740]"
+                className="mt-0.5 truncate font-mono text-sm text-slate-500 dark:text-[#94A3B8]"
                 title={doc.mimeType ?? 'desconocido'}
               >
                 {doc.mimeType ?? 'desconocido'}
               </p>
             </div>
             <div>
-              <span className="text-xs text-[#6E6A63]">Fecha de custodia</span>
-              <p className="mt-0.5 text-sm text-[#4A4740]">
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">Fecha de custodia</span>
+              <p className="mt-0.5 text-sm text-slate-500 dark:text-[#94A3B8]">
                 {version ? formatDateTime(version.created_at) : formatDateTime(doc.createdAt)}
               </p>
             </div>
           </div>
 
           {/* Huella SHA-256 completa con botón de copiado */}
-          <div className="rounded-xl border border-[#E6E4DD] bg-[#FAF9F6] p-4 text-[#181816]">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-900 dark:border-[#1E293B] dark:bg-[#07090E] dark:text-[#F8FAFC]">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-[#6E6A63]">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-[#94A3B8]">
                 Huella SHA-256 completa
               </span>
               {hash ? (
                 <button
                   type="button"
                   onClick={handleCopyHash}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[#DCD9D0] bg-white px-2.5 py-1 text-xs font-medium text-[#181816] shadow-2xs transition hover:bg-[#F3F1EC]"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm transition hover:border-sky-400 hover:text-sky-700 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#F8FAFC] dark:hover:border-[#38BDF8]/40 dark:hover:text-[#BAE6FD]"
                 >
                   {copied ? (
                     <>
-                      <Check className="h-3.5 w-3.5 text-[#6E6053]" />
-                      <span className="text-[#6E6053]">Copiada</span>
+                      <Check className="h-3.5 w-3.5 text-[#0284C7] dark:text-[#38BDF8]" />
+                      <span className="text-[#0284C7] dark:text-[#38BDF8]">Copiada</span>
                     </>
                   ) : (
                     <>
@@ -173,27 +173,18 @@ export default function DocumentPreviewModal({
                 </button>
               ) : null}
             </div>
-            <p className="mt-2 break-all font-mono text-xs leading-relaxed text-[#181816]">
+            <p className="mt-2 break-all font-mono text-xs leading-relaxed text-sky-800 dark:text-[#BAE6FD]">
               {hash || 'Sin versión disponible'}
             </p>
-          </div>
-
-          {/* Nota Zero-Knowledge */}
-          <div className="flex items-start gap-2.5 rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] px-3.5 py-2.5 text-xs text-[#5C5043]">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#6E6053]" />
-            <span>
-              Previsualización de metadatos: el contenido en claro sólo se revela tras descargar y
-              descifrar localmente en la memoria RAM de tu dispositivo.
-            </span>
           </div>
         </div>
 
         {/* Pie del modal */}
-        <div className="flex justify-end border-t border-[#EFECE6] bg-[#FAF9F6] px-6 py-3.5">
+        <div className="flex shrink-0 justify-end border-t border-slate-200 bg-slate-50 px-6 py-3.5 dark:border-[#1E293B] dark:bg-[#0A0E17]">
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-lg border border-[#DCD9D0] bg-white px-4 py-2 text-sm font-medium text-[#181816] shadow-2xs transition hover:bg-[#F3F1EC]"
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-100 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#F8FAFC] dark:hover:border-[#38BDF8]/40 dark:hover:text-[#BAE6FD]"
           >
             Cerrar
           </button>
