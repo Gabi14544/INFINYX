@@ -1,7 +1,8 @@
 /**
  * DeleteDocumentModal.tsx
  * ---------------------------------------------------------------------------
- * Modal de confirmación para eliminación segura y destructiva de documentos:
+ * Modal de confirmación para eliminación segura y destructiva de documentos
+ * (tema Private Wealth):
  *
  * Paso 1: Advertencia clara sobre la eliminación irreversible del documento
  *         y todas sus versiones físicas (.enc en Storage) y lógicas.
@@ -62,10 +63,12 @@ export default function DeleteDocumentModal({
   // Reiniciar estado cada vez que se abre el modal
   useEffect(() => {
     if (!open) return;
-    setPassword('');
-    setShowPassword(false);
-    setBusy(false);
-    setError(null);
+    queueMicrotask(() => {
+      setPassword('');
+      setShowPassword(false);
+      setBusy(false);
+      setError(null);
+    });
   }, [open]);
 
   // Cierre con la tecla Escape
@@ -167,26 +170,26 @@ export default function DeleteDocumentModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="delete-document-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs"
       onClick={() => {
         if (!busy) onClose();
       }}
     >
       <div
-        className="w-full max-w-md overflow-hidden rounded-2xl border border-red-500/20 bg-slate-900 shadow-2xl shadow-red-950/20"
+        className="w-full max-w-md overflow-hidden rounded-2xl border border-[#E6E4DD] bg-white text-[#181816] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Encabezado */}
-        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-500/10 ring-1 ring-red-500/30">
-              <Trash2 className="h-5 w-5 text-red-400" />
+        <div className="flex items-center justify-between border-b border-[#EFECE6] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-200">
+              <Trash2 className="h-5 w-5" />
             </span>
             <div>
-              <h3 id="delete-document-modal-title" className="font-semibold text-white">
+              <h3 id="delete-document-modal-title" className="font-editorial text-lg font-semibold text-[#181816]">
                 Eliminar documento
               </h3>
-              <p className="text-xs text-zinc-500">Operación destructiva irreversible</p>
+              <p className="text-xs text-[#6E6A63]">Operación destructiva irreversible</p>
             </div>
           </div>
           <button
@@ -194,7 +197,7 @@ export default function DeleteDocumentModal({
             onClick={onClose}
             disabled={busy}
             aria-label="Cerrar"
-            className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg p-1.5 text-[#8C867B] transition hover:bg-[#F3F1EC] hover:text-[#181816] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <X className="h-5 w-5" />
           </button>
@@ -203,24 +206,29 @@ export default function DeleteDocumentModal({
         {/* Contenido del modal */}
         <form onSubmit={handleDelete} className="space-y-4 px-6 py-5">
           {/* Paso 1: Advertencia clara e irreversible */}
-          <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-xs leading-relaxed text-red-200">
-            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-400" />
+          <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50/80 p-3.5 text-xs leading-relaxed text-red-900">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
             <div>
-              <p className="font-semibold text-red-300">¿Deseas eliminar permanentemente este documento y todas sus versiones?</p>
-              <p className="mt-1 text-red-200/90">Esta acción es irreversible.</p>
+              <p className="font-semibold text-red-950">
+                ¿Deseas eliminar permanentemente este documento y todas sus versiones?
+              </p>
+              <p className="mt-1 text-red-900/90">
+                Esta acción es irreversible y eliminará el archivo tanto de la base de datos como del
+                almacenamiento en la nube.
+              </p>
             </div>
           </div>
 
           {/* Ficha del documento a eliminar */}
-          <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 ring-1 ring-blue-500/20">
-              <FileText className="h-4 w-4 text-blue-400" />
+          <div className="flex items-center gap-3 rounded-xl border border-[#E6E4DD] bg-[#F8F7F4] p-3.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] text-[#5C5043]">
+              <FileText className="h-4 w-4" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-white" title={doc.name}>
+              <p className="truncate text-sm font-semibold text-[#181816]" title={doc.name}>
                 {doc.name}
               </p>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-[#6E6A63]">
                 {doc.versionCount} versión{doc.versionCount === 1 ? '' : 'es'} registrada{doc.versionCount === 1 ? '' : 's'}
                 {doc.latestVersion ? ` · ${formatSize(doc.latestVersion.file_size)}` : ''}
               </p>
@@ -229,22 +237,22 @@ export default function DeleteDocumentModal({
 
           {/* Paso 2: Validación de Seguridad */}
           {hasAuthorizedSession ? (
-            <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-xs text-emerald-300">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+            <div className="flex items-start gap-2.5 rounded-xl border border-[#D8D0C5] bg-[#F5F2EB] p-3.5 text-xs text-[#5C5043]">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#6E6053]" />
               <div>
-                <p className="font-medium text-emerald-200">Autorización activa en RAM</p>
-                <p className="mt-0.5 text-emerald-300/80">
+                <p className="font-semibold text-[#181816]">Autorización activa en RAM</p>
+                <p className="mt-0.5 text-[#5C5043]">
                   La sesión ya cuenta con tu contraseña en memoria. Puedes confirmar la eliminación directamente.
                 </p>
               </div>
             </div>
           ) : (
-            <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-950/60 p-3.5">
-              <div className="flex items-center gap-2 text-xs font-medium text-zinc-300">
-                <KeyRound className="h-4 w-4 text-amber-400" />
+            <div className="space-y-2 rounded-xl border border-[#E6E4DD] bg-[#F8F7F4] p-3.5">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#181816]">
+                <KeyRound className="h-4 w-4 text-[#6E6053]" />
                 <span>Autorización requerida</span>
               </div>
-              <p className="text-xs text-zinc-400">
+              <p className="text-xs text-[#6E6A63]">
                 Introduce la Contraseña de Descarga/Autorización de tu cuenta para autorizar la eliminación permanente:
               </p>
               <div className="relative mt-2">
@@ -258,14 +266,14 @@ export default function DeleteDocumentModal({
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={busy}
                   autoFocus
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 pr-11 text-sm text-white placeholder:text-zinc-600 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20 disabled:opacity-60"
+                  className="w-full rounded-lg border border-[#DCD9D0] bg-white px-3.5 py-2.5 pr-11 text-sm text-[#181816] placeholder:text-[#9E9A91] outline-none transition focus:border-red-600 focus:ring-2 focus:ring-red-600/10 disabled:opacity-60"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   disabled={busy}
                   aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-50"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-[#6E6A63] transition hover:bg-[#F3F1EC] hover:text-[#181816] disabled:opacity-50"
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -277,9 +285,9 @@ export default function DeleteDocumentModal({
           {error && (
             <div
               role="alert"
-              className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-3 text-sm text-red-300"
+              className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
             >
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
               <span className="break-words">{error}</span>
             </div>
           )}
@@ -290,14 +298,14 @@ export default function DeleteDocumentModal({
               type="button"
               onClick={onClose}
               disabled={busy}
-              className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex-1 rounded-lg border border-[#DCD9D0] bg-white px-4 py-2.5 text-sm font-medium text-[#181816] transition hover:bg-[#F3F1EC] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={busy || (!hasAuthorizedSession && password.length === 0)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-600/20 transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? (
                 <>

@@ -59,11 +59,13 @@ export default function AuthCard() {
 
   useEffect(() => {
     if (authSuccessMessage) {
-      setTab('login');
-      const targetEmail = user?.email || otpEmail;
-      if (targetEmail) {
-        setEmail(targetEmail);
-      }
+      queueMicrotask(() => {
+        setTab('login');
+        const targetEmail = user?.email || otpEmail;
+        if (targetEmail) {
+          setEmail(targetEmail);
+        }
+      });
     }
   }, [authSuccessMessage, user?.email, otpEmail]);
 
@@ -143,47 +145,46 @@ export default function AuthCard() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4 py-10">
+    <div className="flex min-h-screen items-center justify-center bg-[#F8F7F4] px-4 py-10 text-[#181816]">
       <div className="w-full max-w-md">
-        {/* Marca corporativa */}
-        <div className="mb-6 flex items-center justify-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/10 ring-1 ring-emerald-500/30">
-            <ShieldCheck className="h-6 w-6 text-emerald-400" />
+        {/* Marca corporativa institucional */}
+        <div className="mb-8 flex flex-col items-center text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#141413] ring-1 ring-[#262523] shadow-md">
+            <ShieldCheck className="h-6 w-6 text-[#C8B69E]" />
           </span>
-          <div className="text-left">
-            <p className="text-lg font-semibold tracking-tight text-white">
-              Tech-Value Vault
-            </p>
-            <p className="text-xs uppercase tracking-widest text-zinc-500">
-              Zero-Knowledge · AES-GCM-256
-            </p>
-          </div>
+          <h1 className="font-editorial mt-3 text-2xl font-bold tracking-tight text-[#181816]">
+            Tech-Value Vault
+          </h1>
+          <p className="mt-1 text-xs uppercase tracking-widest text-[#6E6A63]">
+            Zero-Knowledge · AES-GCM-256 · Private Wealth Custody
+          </p>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-slate-900 shadow-2xl shadow-black/50">
+        {/* Tarjeta de Login / Registro / OTP */}
+        <div className="overflow-hidden rounded-2xl border border-[#E6E4DD] bg-white shadow-[0_12px_40px_rgba(20,20,19,0.06)]">
           {isAwaitingOtp ? (
-            /* Vista de Verificación de Seguridad (OTP) */
+            /* Vista de Verificación OTP de 6 dígitos */
             <form onSubmit={handleVerifyOtp} className="space-y-5 p-6 sm:p-8">
               <div>
-                <div className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Verificación de Seguridad
-                </div>
-                <h2 className="text-xl font-semibold text-white">
-                  Introduce el código de verificación
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#D8D0C5] bg-[#F5F2EB] px-2.5 py-0.5 text-xs font-medium uppercase tracking-wider text-[#5C5043]">
+                  <ShieldCheck className="h-3.5 w-3.5 text-[#6E6053]" />
+                  Autenticación Multifactor
+                </span>
+                <h2 className="font-editorial mt-2 text-xl font-semibold text-[#181816]">
+                  Verificación OTP de 6 dígitos
                 </h2>
-                <p className="mt-1 text-sm text-zinc-400">
-                  Enviamos un código a{' '}
-                  <strong className="text-zinc-200">{otpEmail}</strong>
+                <p className="mt-1 text-sm text-[#6E6A63]">
+                  Introduce el código temporal enviado a{' '}
+                  <strong className="text-[#181816]">{otpEmail}</strong>
                 </p>
               </div>
 
               {error && (
                 <div
                   role="alert"
-                  className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-3 text-sm text-red-300"
+                  className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
                 >
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
                   <span className="break-words">{error}</span>
                 </div>
               )}
@@ -191,11 +192,11 @@ export default function AuthCard() {
               {resendSuccess && !error && (
                 <div
                   role="status"
-                  className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-3 text-sm text-emerald-200"
+                  className="flex items-start gap-2.5 rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] px-3.5 py-3 text-sm text-[#5C5043]"
                 >
-                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#6E6053]" />
                   <span className="break-words">
-                    Se ha enviado un nuevo código de verificación a tu correo.
+                    Se ha enviado un nuevo código de verificación a tu correo institucional.
                   </span>
                 </div>
               )}
@@ -203,7 +204,7 @@ export default function AuthCard() {
               <div className="space-y-1.5">
                 <label
                   htmlFor="auth-otp"
-                  className="block text-center text-xs font-medium uppercase tracking-wider text-zinc-400"
+                  className="block text-center text-xs font-semibold uppercase tracking-wider text-[#6E6A63]"
                 >
                   Código de verificación
                 </label>
@@ -220,14 +221,14 @@ export default function AuthCard() {
                   onChange={handleOtpChange}
                   onPaste={handleOtpPaste}
                   disabled={isLoading || isResending}
-                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3.5 text-center font-mono text-3xl font-bold tracking-[0.4em] text-emerald-400 placeholder:text-zinc-700 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
+                  className="w-full rounded-xl border border-[#DCD9D0] bg-[#FAF9F6] px-4 py-3.5 text-center font-mono text-3xl font-bold tracking-[0.4em] text-[#181816] placeholder:text-[#DCD9D0] outline-none transition focus:border-[#141413] focus:ring-2 focus:ring-[#141413]/10 disabled:opacity-60"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isLoading || isResending || otpCode.length < 6}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2B2A27] focus:outline-none focus:ring-2 focus:ring-[#141413]/20 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isLoading ? (
                   <>
@@ -247,7 +248,7 @@ export default function AuthCard() {
                   type="button"
                   onClick={handleResendOtp}
                   disabled={isLoading || isResending}
-                  className="inline-flex items-center gap-1.5 text-xs text-emerald-400 transition hover:text-emerald-300 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-[#6E6053] transition hover:text-[#181816] disabled:opacity-50"
                 >
                   {isResending ? (
                     <>
@@ -266,25 +267,25 @@ export default function AuthCard() {
                   type="button"
                   onClick={handleCancelOtp}
                   disabled={isLoading || isResending}
-                  className="inline-flex items-center gap-1.5 text-xs text-zinc-400 transition hover:text-zinc-200 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 text-xs text-[#8C867B] transition hover:text-[#181816] disabled:opacity-50"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
                   Volver / Cambiar correo
                 </button>
               </div>
 
-              <p className="flex items-center justify-center gap-1.5 text-center text-xs text-zinc-500">
+              <p className="flex items-center justify-center gap-1.5 text-center text-xs text-[#8C867B]">
                 <Lock className="h-3 w-3" />
                 Cifrado de extremo a extremo · PBKDF2-SHA256 · Servidor ciego
               </p>
             </form>
           ) : (
             <>
-              {/* Pestañas */}
+              {/* Pestañas Iniciar Sesión / Crear Cuenta */}
               <div
                 role="tablist"
                 aria-label="Modo de autenticación"
-                className="grid grid-cols-2 border-b border-zinc-800 bg-zinc-950/60 p-1.5"
+                className="grid grid-cols-2 border-b border-[#E6E4DD] bg-[#F3F1EC] p-1.5"
               >
                 {(
                   [
@@ -298,10 +299,10 @@ export default function AuthCard() {
                     aria-selected={tab === t.id}
                     type="button"
                     onClick={() => switchTab(t.id)}
-                    className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+                    className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-all ${
                       tab === t.id
-                        ? 'bg-slate-800 text-white shadow ring-1 ring-zinc-700'
-                        : 'text-zinc-400 hover:bg-slate-800/50 hover:text-zinc-200'
+                        ? 'bg-white text-[#181816] shadow-xs ring-1 ring-[#E6E4DD]'
+                        : 'text-[#6E6A63] hover:text-[#181816]'
                     }`}
                   >
                     {t.label}
@@ -309,187 +310,192 @@ export default function AuthCard() {
                 ))}
               </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4 p-6 sm:p-8">
-            <div>
-              <h2 className="text-xl font-semibold text-white">
-                {tab === 'login' ? 'Acceso a la bóveda' : 'Nueva bóveda cifrada'}
-              </h2>
-              <p className="mt-1 text-sm text-zinc-400">
-                {tab === 'login'
-                  ? 'Tu clave se deriva en local. El servidor nunca la ve.'
-                  : 'Generamos tu clave AES-GCM-256 en este dispositivo.'}
-              </p>
-            </div>
+              <form onSubmit={handleSubmit} className="space-y-4 p-6 sm:p-8">
+                <div>
+                  <h2 className="font-editorial text-xl font-semibold text-[#181816]">
+                    {tab === 'login' ? 'Acceso a la bóveda' : 'Nueva bóveda cifrada'}
+                  </h2>
+                  <p className="mt-1 text-sm text-[#6E6A63]">
+                    {tab === 'login'
+                      ? 'Tu clave se deriva en local. El servidor nunca la ve.'
+                      : 'Generamos tu clave AES-GCM-256 en este dispositivo.'}
+                  </p>
+                </div>
 
-            {error && (
-              <div
-                role="alert"
-                className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-3 text-sm text-red-300"
-              >
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="break-words">{error}</span>
-              </div>
-            )}
+                {error && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+                    <span className="break-words">{error}</span>
+                  </div>
+                )}
 
-            {authSuccessMessage && !error && (
-              <div
-                role="status"
-                className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-3 text-sm text-emerald-200"
-              >
-                <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-                <span className="break-words">{authSuccessMessage}</span>
-              </div>
-            )}
+                {authSuccessMessage && !error && (
+                  <div
+                    role="status"
+                    className="flex items-start gap-2.5 rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] px-3.5 py-3 text-sm text-[#5C5043]"
+                  >
+                    <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#6E6053]" />
+                    <span className="break-words">{authSuccessMessage}</span>
+                  </div>
+                )}
 
-            {pendingConfirmationEmail && !error && !authSuccessMessage && (
-              <div
-                role="status"
-                className="flex items-start gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-3 text-sm text-emerald-200"
-              >
-                <MailCheck className="mt-0.5 h-4 w-4 shrink-0" />
-                <span className="break-words">
-                  Cuenta creada. Te hemos enviado un correo de confirmación a{' '}
-                  <strong>{pendingConfirmationEmail}</strong>. Debes
-                  confirmarlo antes de entrar: revisa tu bandeja y luego
-                  inicia sesión. Aún no has accedido al dashboard.
-                </span>
-              </div>
-            )}
+                {pendingConfirmationEmail && !error && !authSuccessMessage && (
+                  <div
+                    role="status"
+                    className="flex items-start gap-2.5 rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] px-3.5 py-3 text-sm text-[#5C5043]"
+                  >
+                    <MailCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#6E6053]" />
+                    <span className="break-words">
+                      Cuenta creada. Te hemos enviado un correo de confirmación a{' '}
+                      <strong>{pendingConfirmationEmail}</strong>. Debes confirmarlo antes de entrar:
+                      revisa tu bandeja y luego inicia sesión.
+                    </span>
+                  </div>
+                )}
 
-            <div className="space-y-1.5">
-              <label
-                htmlFor="auth-email"
-                className="text-sm font-medium text-zinc-300"
-              >
-                Email corporativo
-              </label>
-              <input
-                id="auth-email"
-                type="email"
-                required
-                autoComplete="email"
-                placeholder="socio@empresa.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={isLoading}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 text-sm text-white placeholder:text-zinc-600 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
-              />
-            </div>
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="auth-email"
+                    className="text-sm font-medium text-[#181816]"
+                  >
+                    Email corporativo
+                  </label>
+                  <input
+                    id="auth-email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder="socio@bancaprivada.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isLoading}
+                    className="w-full rounded-lg border border-[#DCD9D0] bg-white px-3.5 py-2.5 text-sm text-[#181816] placeholder:text-[#9E9A91] outline-none transition focus:border-[#141413] focus:ring-2 focus:ring-[#141413]/10 disabled:opacity-60"
+                  />
+                </div>
 
-            <div className="space-y-1.5">
-              <label
-                htmlFor="auth-password"
-                className="text-sm font-medium text-zinc-300"
-              >
-                Contraseña
-              </label>
-              <div className="relative">
-                <input
-                  id="auth-password"
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  minLength={8}
-                  autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
-                  placeholder="Mínimo 8 caracteres"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isLoading}
-                  className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3.5 py-2.5 pr-11 text-sm text-white placeholder:text-zinc-600 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60"
-                />
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="auth-password"
+                    className="text-sm font-medium text-[#181816]"
+                  >
+                    Contraseña maestra
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="auth-password"
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      minLength={8}
+                      autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
+                      placeholder="Mínimo 8 caracteres"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={isLoading}
+                      className="w-full rounded-lg border border-[#DCD9D0] bg-white px-3.5 py-2.5 pr-11 text-sm text-[#181816] placeholder:text-[#9E9A91] outline-none transition focus:border-[#141413] focus:ring-2 focus:ring-[#141413]/10 disabled:opacity-60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      disabled={isLoading}
+                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-[#6E6A63] transition hover:bg-[#F3F1EC] hover:text-[#181816] disabled:opacity-50"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
                 <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
+                  type="submit"
                   disabled={isLoading}
-                  aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-zinc-500 transition hover:bg-zinc-800 hover:text-zinc-200 disabled:opacity-50"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2B2A27] focus:outline-none focus:ring-2 focus:ring-[#141413]/20 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {tab === 'login' ? 'Verificando…' : 'Generando bóveda…'}
+                    </>
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <>
+                      {tab === 'login' ? (
+                        <Lock className="h-4 w-4" />
+                      ) : (
+                        <KeyRound className="h-4 w-4" />
+                      )}
+                      {tab === 'login' ? 'Desbloquear bóveda' : 'Crear bóveda segura'}
+                    </>
                   )}
                 </button>
-              </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {tab === 'login' ? 'Verificando…' : 'Generando bóveda…'}
-                </>
-              ) : (
-                <>
-                  {tab === 'login' ? (
-                    <Lock className="h-4 w-4" />
-                  ) : (
-                    <KeyRound className="h-4 w-4" />
-                  )}
-                  {tab === 'login' ? 'Desbloquear bóveda' : 'Crear bóveda segura'}
-                </>
-              )}
-            </button>
+                <p className="flex items-center justify-center gap-1.5 text-center text-xs text-[#8C867B]">
+                  <Lock className="h-3 w-3" />
+                  Cifrado de extremo a extremo · PBKDF2-SHA256 · Servidor ciego
+                </p>
+              </form>
+            </>
+          )}
+        </div>
 
-            <p className="flex items-center justify-center gap-1.5 text-center text-xs text-zinc-500">
-              <Lock className="h-3 w-3" />
-              Cifrado de extremo a extremo · PBKDF2-SHA256 · Servidor ciego
-            </p>
-          </form>
-        </>
-      )}
-    </div>
-
-        <p className="mt-4 text-center text-xs text-zinc-600">
-          Infraestructura auditada · Ningún empleado puede leer tus documentos
+        <p className="mt-4 text-center text-xs text-[#8C867B]">
+          Infraestructura auditada · Ningún operador o tercero puede leer tus documentos
         </p>
       </div>
 
-      {/* Frase de recuperación: material sensible de un solo uso en RAM */}
+      {/* Modal de Frase de Recuperación: material sensible de un solo uso en RAM */}
       {recoveryPhrase && (
         <div
           role="dialog"
           aria-modal="true"
           aria-label="Frase de recuperación"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs"
         >
-          <div className="w-full max-w-lg rounded-2xl border border-amber-500/30 bg-slate-900 p-6 shadow-2xl sm:p-8">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-500/10 ring-1 ring-amber-500/30">
-                <KeyRound className="h-5 w-5 text-amber-400" />
+          <div className="w-full max-w-lg rounded-2xl border border-[#E6E4DD] bg-white p-6 shadow-2xl sm:p-8">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#D8D0C5] bg-[#F5F2EB] text-[#6E6053]">
+                <KeyRound className="h-5 w-5" />
               </span>
-              <h3 className="text-lg font-semibold text-white">
-                Tu frase de recuperación
-              </h3>
+              <div>
+                <h3 className="font-editorial text-xl font-semibold text-[#181816]">
+                  Tu frase de recuperación
+                </h3>
+                <p className="text-xs text-[#6E6A63]">
+                  Generada en cliente · Custodia Zero-Knowledge
+                </p>
+              </div>
             </div>
 
-            <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-200">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-[#E2D6C1] bg-[#FAF6EE] px-3.5 py-3 text-sm text-[#5C4D3C]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#8C6D44]" />
               <p>
-                <strong>Guarda esta clave, el servidor no puede recuperarla.</strong>{' '}
-                Sin estas 12 palabras perderás el acceso definitivo a tus documentos.
+                <strong>Guarda esta clave con extrema seguridad.</strong> El servidor no tiene copia
+                ni puede recuperarla. Sin estas 12 palabras no podrás restaurar el acceso a tus
+                documentos cifrados.
               </p>
             </div>
 
-            <div className="mt-4 rounded-xl border border-zinc-700 bg-zinc-950 p-4">
-              <p className="font-mono text-sm leading-7 text-emerald-300">
+            <div className="mt-4 rounded-xl border border-[#E6E4DD] bg-[#F8F7F4] p-4">
+              <p className="font-mono text-sm font-medium leading-7 text-[#181816]">
                 {recoveryPhrase}
               </p>
             </div>
 
-            <div className="mt-5 flex flex-col gap-2.5 sm:flex-row">
+            <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
               <button
                 type="button"
                 onClick={handleCopyPhrase}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-700"
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#DCD9D0] bg-white px-4 py-2.5 text-sm font-medium text-[#181816] transition hover:bg-[#F3F1EC]"
               >
                 {copied ? (
                   <>
-                    <Check className="h-4 w-4 text-emerald-400" />
-                    Copiada
+                    <Check className="h-4 w-4 text-[#6E6053]" />
+                    Copiada al portapapeles
                   </>
                 ) : (
                   <>
@@ -501,7 +507,7 @@ export default function AuthCard() {
               <button
                 type="button"
                 onClick={clearRecoveryPhrase}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2B2A27]"
               >
                 <ShieldCheck className="h-4 w-4" />
                 Ya la guardé, entrar

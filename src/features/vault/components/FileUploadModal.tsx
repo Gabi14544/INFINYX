@@ -37,14 +37,14 @@ const PIPELINE_STEPS: PipelineStep[] = [
     id: 'reading',
     order: 1,
     title: 'Lectura en memoria local',
-    detail: 'El archivo se carga en RAM. Nada sale del navegador.',
+    detail: 'El archivo se carga en memoria RAM. Nada sale del navegador.',
     icon: HardDrive,
   },
   {
     id: 'hashing',
     order: 2,
     title: 'Cálculo de huella SHA-256',
-    detail: 'Huella del texto plano como referencia de integridad.',
+    detail: 'Huella del texto plano como referencia criptográfica de integridad.',
     icon: Fingerprint,
   },
   {
@@ -87,18 +87,18 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Al reabrir el modal se parte siempre de un estado limpio.
+  // Al abrir el modal se restablece el estado para partir limpios
   useEffect(() => {
     if (open) {
-      setFile(null);
-      setLocalError(null);
-      setDragging(false);
-      resetUploadStatus();
-      clearError();
+      queueMicrotask(() => {
+        setFile(null);
+        setLocalError(null);
+        setDragging(false);
+        resetUploadStatus();
+        clearError();
+      });
     }
-    // Se ejecuta sólo al abrir/cerrar para no pisar el progreso en curso.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, resetUploadStatus, clearError]);
 
   if (!open) return null;
 
@@ -158,23 +158,25 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
       role="dialog"
       aria-modal="true"
       aria-label="Proteger nuevo documento"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4 backdrop-blur-xs"
       onClick={handleClose}
     >
       <div
-        className="w-full max-w-xl overflow-hidden rounded-2xl border border-zinc-800 bg-slate-900 shadow-2xl"
+        className="w-full max-w-xl overflow-hidden rounded-2xl border border-[#E6E4DD] bg-white text-[#181816] shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Cabecera */}
-        <div className="flex items-center justify-between border-b border-zinc-800 px-6 py-4">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/30">
-              <FileUp className="h-5 w-5 text-emerald-400" />
+        <div className="flex items-center justify-between border-b border-[#EFECE6] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] text-[#6E6053]">
+              <FileUp className="h-5 w-5" />
             </span>
             <div>
-              <h3 className="font-semibold text-white">Proteger nuevo documento</h3>
-              <p className="text-xs text-zinc-500">
-                Cifrado local antes de cualquier transmisión
+              <h3 className="font-editorial text-lg font-semibold text-[#181816]">
+                Proteger nuevo documento
+              </h3>
+              <p className="text-xs text-[#6E6A63]">
+                Cifrado local antes de cualquier transmisión al servidor
               </p>
             </div>
           </div>
@@ -183,7 +185,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             onClick={handleClose}
             disabled={busy}
             aria-label="Cerrar"
-            className="rounded-lg p-2 text-zinc-500 transition hover:bg-zinc-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg p-1.5 text-[#8C867B] transition hover:bg-[#F3F1EC] hover:text-[#181816] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <X className="h-5 w-5" />
           </button>
@@ -201,10 +203,10 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             onClick={() => !busy && inputRef.current?.click()}
             className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition ${
               dragging
-                ? 'border-emerald-400 bg-emerald-500/10'
+                ? 'border-[#6E6053] bg-[#F5F2EB]'
                 : file
-                  ? 'border-zinc-700 bg-zinc-950/60'
-                  : 'border-zinc-700 bg-zinc-950/40 hover:border-zinc-600 hover:bg-zinc-950/70'
+                  ? 'border-[#6E6053] bg-[#FAF9F6]'
+                  : 'border-[#D5D1C8] bg-[#FAF9F6] hover:border-[#6E6053] hover:bg-[#F5F3EE]'
             } ${busy ? 'pointer-events-none opacity-70' : ''}`}
           >
             <input
@@ -214,24 +216,22 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
               onChange={(e) => pickFile(e.target.files?.[0])}
               disabled={busy}
             />
-            <Upload
-              className={`h-8 w-8 ${dragging ? 'text-emerald-300' : 'text-zinc-500'}`}
-            />
+            <Upload className="h-8 w-8 text-[#6E6053]" />
             {file ? (
               <>
-                <p className="max-w-full truncate text-sm font-medium text-white">
+                <p className="max-w-full truncate text-sm font-semibold text-[#181816]">
                   {file.name}
                 </p>
-                <p className="text-xs text-zinc-500">
-                  {(file.size / 1024).toFixed(1)} KB · clic para cambiar
+                <p className="text-xs text-[#6E6A63]">
+                  {(file.size / 1024).toFixed(1)} KB · Haz clic para cambiar archivo
                 </p>
               </>
             ) : (
               <>
-                <p className="text-sm font-medium text-zinc-200">
+                <p className="text-sm font-medium text-[#181816]">
                   Arrastra tu archivo aquí o haz clic para seleccionarlo
                 </p>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-[#6E6A63]">
                   El texto plano nunca abandona este dispositivo sin cifrar · Máx. 50 MB
                 </p>
               </>
@@ -242,34 +242,36 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
           {(localError || (failed && vaultError)) && (
             <div
               role="alert"
-              className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-3 text-sm text-red-300"
+              className="flex items-start gap-2.5 rounded-lg border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
             >
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
               <span className="break-words">{localError || (failed ? vaultError : null)}</span>
             </div>
           )}
 
-          {/* Pipeline en tiempo real */}
+          {/* Pipeline Zero-Knowledge en tiempo real */}
           {(busy || finished || failed) && (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-medium uppercase tracking-widest text-zinc-500">
+                <span className="font-semibold uppercase tracking-wider text-[#6E6A63]">
                   Pipeline Zero-Knowledge
                 </span>
                 <span
-                  className={`font-semibold ${finished ? 'text-emerald-400' : failed ? 'text-red-400' : 'text-blue-400'}`}
+                  className={`font-semibold ${
+                    finished ? 'text-[#6E6053]' : failed ? 'text-red-600' : 'text-[#141413]'
+                  }`}
                 >
                   {finished ? '100%' : `${progressPct}%`}
                 </span>
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-1.5 overflow-hidden rounded-full bg-[#EFECE6]">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
                     finished
-                      ? 'bg-emerald-500'
+                      ? 'bg-[#6E6053]'
                       : failed
-                        ? 'bg-red-500'
-                        : 'bg-blue-500'
+                        ? 'bg-red-600'
+                        : 'bg-[#141413]'
                   }`}
                   style={{ width: `${failed ? 100 : progressPct}%` }}
                 />
@@ -289,21 +291,21 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                       key={step.id}
                       className={`flex items-start gap-3 rounded-lg border px-3.5 py-2.5 transition ${
                         active
-                          ? 'border-blue-500/40 bg-blue-500/10'
+                          ? 'border-[#6E6053] bg-[#FAF9F6]'
                           : done
-                            ? 'border-emerald-500/25 bg-emerald-500/5'
+                            ? 'border-[#D8D0C5] bg-[#F5F2EB]'
                             : failed && step.order === activeIndex
-                              ? 'border-red-500/40 bg-red-500/10'
-                              : 'border-zinc-800 bg-zinc-950/50'
+                              ? 'border-red-200 bg-red-50'
+                              : 'border-[#E6E4DD] bg-[#F8F7F4]'
                       }`}
                     >
                       <span
                         className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ring-1 ${
                           done
-                            ? 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/30'
+                            ? 'bg-[#6E6053] text-white ring-[#6E6053]'
                             : active
-                              ? 'bg-blue-500/15 text-blue-400 ring-blue-500/30'
-                              : 'bg-zinc-800 text-zinc-500 ring-zinc-700'
+                              ? 'bg-[#141413] text-white ring-[#141413]'
+                              : 'bg-[#F3F1EC] text-[#8C867B] ring-[#E6E4DD]'
                         }`}
                       >
                         {done ? (
@@ -316,11 +318,13 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                       </span>
                       <div className="min-w-0">
                         <p
-                          className={`text-sm font-medium ${pending && !failed ? 'text-zinc-500' : 'text-zinc-100'}`}
+                          className={`text-sm font-medium ${
+                            pending && !failed ? 'text-[#8C867B]' : 'text-[#181816]'
+                          }`}
                         >
                           Paso {step.order}: {step.title}
                         </p>
-                        <p className="text-xs text-zinc-500">{step.detail}</p>
+                        <p className="text-xs text-[#6E6A63]">{step.detail}</p>
                       </div>
                     </li>
                   );
@@ -328,24 +332,24 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
               </ol>
 
               {finished && (
-                <div className="flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-3 text-sm text-emerald-300">
-                  <ShieldCheck className="h-4 w-4 shrink-0" />
-                  Documento cifrado y registrado. Sólo tú puedes descifrarlo.
+                <div className="flex items-center gap-2.5 rounded-lg border border-[#D8D0C5] bg-[#F5F2EB] px-3.5 py-3 text-sm text-[#5C5043]">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-[#6E6053]" />
+                  Documento cifrado y registrado en la bóveda. Sólo tú puedes descifrarlo.
                 </div>
               )}
             </div>
           )}
 
           {/* Acciones */}
-          <div className="flex gap-2.5">
+          <div className="flex gap-2.5 pt-1">
             {finished ? (
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400"
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2B2A27]"
               >
                 <Check className="h-4 w-4" />
-                Cerrar
+                Cerrar y ver en catálogo
               </button>
             ) : (
               <>
@@ -353,7 +357,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                   type="button"
                   onClick={handleClose}
                   disabled={busy}
-                  className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex-1 rounded-lg border border-[#DCD9D0] bg-white px-4 py-2.5 text-sm font-medium text-[#181816] transition hover:bg-[#F3F1EC] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cancelar
                 </button>
@@ -361,7 +365,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                   type="button"
                   onClick={handleUpload}
                   disabled={!file || busy || !vaultKey}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#141413] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2B2A27] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {busy ? (
                     <>
@@ -380,8 +384,8 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
           </div>
 
           {!vaultKey && (
-            <p className="text-center text-xs text-amber-400/90">
-              La bóveda está bloqueada: desbloquéala con tu contraseña para subir.
+            <p className="text-center text-xs text-[#8C6D44]">
+              La bóveda está bloqueada: debes iniciar sesión para subir documentos.
             </p>
           )}
         </div>
