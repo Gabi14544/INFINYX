@@ -10,7 +10,7 @@
  * ---------------------------------------------------------------------------
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   FolderOpen,
@@ -20,17 +20,17 @@ import {
   Search,
   ShieldCheck,
   Trash2,
-} from 'lucide-react';
-import HexaMugenLogo from '../../../shared/components/HexaMugenLogo';
-import ThemeToggle from '../../../shared/components/ThemeToggle';
-import { useAuthStore } from '../../auth/stores/useAuthStore';
-import { toVersionDescriptor, useVaultStore } from '../stores/useVaultStore';
-import { useDownloadAuthStore } from '../stores/useDownloadAuthStore';
-import type { VaultDocument } from '../../../shared/types';
-import BulkDeleteModal from './BulkDeleteModal';
-import DocumentRow from './DocumentRow';
-import DownloadAuthModal from './DownloadAuthModal';
-import FileUploadModal from './FileUploadModal';
+} from "lucide-react";
+import HexaMugenLogo from "../../../shared/components/HexaMugenLogo";
+import ThemeToggle from "../../../shared/components/ThemeToggle";
+import { useAuthStore } from "../../auth/stores/useAuthStore";
+import { toVersionDescriptor, useVaultStore } from "../stores/useVaultStore";
+import { useDownloadAuthStore } from "../stores/useDownloadAuthStore";
+import type { VaultDocument } from "../../../shared/types";
+import BulkDeleteModal from "./BulkDeleteModal";
+import DocumentRow from "./DocumentRow";
+import DownloadAuthModal from "./DownloadAuthModal";
+import FileUploadModal from "./FileUploadModal";
 
 export default function VaultDashboard() {
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -39,13 +39,19 @@ export default function VaultDashboard() {
   const [pendingDoc, setPendingDoc] = useState<VaultDocument | null>(null);
 
   // Estados de selección múltiple y borrado masivo
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [bulkDeleteMode, setBulkDeleteMode] = useState<'selected' | 'all' | null>(null);
+  const [selectedIdsState, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleteMode, setBulkDeleteMode] = useState<
+    "selected" | "all" | null
+  >(null);
 
   // Estados locales para búsqueda y filtrado en RAM
-  const [searchQuery, setSearchQuery] = useState('');
-  const [versionFilter, setVersionFilter] = useState<'all' | 'v1' | 'multi'>('all');
-  const [sortOrder, setSortOrder] = useState<'newest' | 'largest' | 'name'>('newest');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [versionFilter, setVersionFilter] = useState<"all" | "v1" | "multi">(
+    "all",
+  );
+  const [sortOrder, setSortOrder] = useState<"newest" | "largest" | "name">(
+    "newest",
+  );
 
   const vaultKey = useAuthStore((s) => s.vaultKey);
   const signOut = useAuthStore((s) => s.signOut);
@@ -56,24 +62,22 @@ export default function VaultDashboard() {
   const fetchDocuments = useVaultStore((s) => s.fetchDocuments);
   const downloadAndDecrypt = useVaultStore((s) => s.downloadAndDecrypt);
   const clearError = useVaultStore((s) => s.clearError);
-  const resetVault = useVaultStore((s) => s.reset);
 
-  const downloadSessionPassword = useDownloadAuthStore((s) => s.downloadSessionPassword);
-  const clearDownloadSessionPassword = useDownloadAuthStore((s) => s.clearDownloadSessionPassword);
+  const downloadSessionPassword = useDownloadAuthStore(
+    (s) => s.downloadSessionPassword,
+  );
 
   useEffect(() => {
     if (vaultKey) {
       void fetchDocuments();
     }
     // Carga inicial al desbloquear; no se repite en cada render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vaultKey]);
+  }, [vaultKey, fetchDocuments]);
 
-  // Limpia los IDs seleccionados que ya no existan en el catálogo de documentos
-  useEffect(() => {
-    const docIdSet = new Set(documents.map((d) => d.id));
-    setSelectedIds((prev) => prev.filter((id) => docIdSet.has(id)));
-  }, [documents]);
+  const selectedIds = useMemo(() => {
+    const visible = new Set(documents.map((doc) => doc.id));
+    return selectedIdsState.filter((id) => visible.has(id));
+  }, [documents, selectedIdsState]);
 
   /** Filtrado y ordenación 100 % en memoria RAM sin llamadas adicionales a red */
   const filteredDocuments = useMemo(() => {
@@ -83,30 +87,38 @@ export default function VaultDashboard() {
     if (query) {
       result = result.filter((doc) => {
         const matchName = doc.name.toLowerCase().includes(query);
-        const matchHash = doc.latestVersion?.sha256_hash.toLowerCase().includes(query) ?? false;
+        const matchHash =
+          doc.latestVersion?.sha256_hash.toLowerCase().includes(query) ?? false;
         return matchName || matchHash;
       });
     }
 
-    if (versionFilter === 'v1') {
-      result = result.filter((doc) => (doc.latestVersion?.version_number ?? 1) === 1);
-    } else if (versionFilter === 'multi') {
+    if (versionFilter === "v1") {
       result = result.filter(
-        (doc) => (doc.latestVersion?.version_number ?? 1) > 1 || doc.versionCount > 1,
+        (doc) => (doc.latestVersion?.version_number ?? 1) === 1,
+      );
+    } else if (versionFilter === "multi") {
+      result = result.filter(
+        (doc) =>
+          (doc.latestVersion?.version_number ?? 1) > 1 || doc.versionCount > 1,
       );
     }
 
     return [...result].sort((a, b) => {
-      if (sortOrder === 'name') {
-        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      if (sortOrder === "name") {
+        return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
       }
-      if (sortOrder === 'largest') {
+      if (sortOrder === "largest") {
         const sizeA = a.latestVersion?.file_size ?? 0;
         const sizeB = b.latestVersion?.file_size ?? 0;
         return sizeB - sizeA;
       }
-      const dateA = new Date(a.latestVersion?.created_at ?? a.createdAt).getTime();
-      const dateB = new Date(b.latestVersion?.created_at ?? b.createdAt).getTime();
+      const dateA = new Date(
+        a.latestVersion?.created_at ?? a.createdAt,
+      ).getTime();
+      const dateB = new Date(
+        b.latestVersion?.created_at ?? b.createdAt,
+      ).getTime();
       return dateB - dateA;
     });
   }, [documents, searchQuery, versionFilter, sortOrder]);
@@ -152,8 +164,6 @@ export default function VaultDashboard() {
   };
 
   const handleSignOut = async () => {
-    clearDownloadSessionPassword();
-    resetVault();
     await signOut();
   };
 
@@ -178,7 +188,7 @@ export default function VaultDashboard() {
   };
 
   const docsForBulkDelete =
-    bulkDeleteMode === 'all'
+    bulkDeleteMode === "all"
       ? documents
       : documents.filter((d) => selectedIds.includes(d.id));
 
@@ -232,8 +242,8 @@ export default function VaultDashboard() {
             </h1>
             <p className="mt-2 text-sm text-slate-500 dark:text-[#94A3B8]">
               {documents.length === 0
-                ? 'Tus archivos cifrados aparecerán aquí.'
-                : `${documents.length} documento${documents.length === 1 ? '' : 's'} en custodia`}
+                ? "Tus archivos cifrados aparecerán aquí."
+                : `${documents.length} documento${documents.length === 1 ? "" : "s"} en custodia`}
             </p>
           </div>
 
@@ -241,7 +251,8 @@ export default function VaultDashboard() {
             {selectedIds.length > 0 && (
               <button
                 type="button"
-                onClick={() => setBulkDeleteMode('selected')}
+                onClick={() => setBulkDeleteMode("selected")}
+                disabled={isLoading}
                 className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3.5 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200 dark:hover:bg-red-500/25"
               >
                 <Trash2 className="h-4 w-4 shrink-0" />
@@ -252,7 +263,8 @@ export default function VaultDashboard() {
             {documents.length > 0 && (
               <button
                 type="button"
-                onClick={() => setBulkDeleteMode('all')}
+                onClick={() => setBulkDeleteMode("all")}
+                disabled={isLoading}
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-red-300 dark:hover:border-red-500/40 dark:hover:bg-red-500/10"
               >
                 <Trash2 className="h-4 w-4 shrink-0" />
@@ -263,6 +275,7 @@ export default function VaultDashboard() {
             <button
               type="button"
               onClick={() => setUploadOpen(true)}
+              disabled={isLoading}
               className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 dark:text-[#07090E]"
             >
               <Plus className="h-4 w-4 shrink-0" />
@@ -289,7 +302,9 @@ export default function VaultDashboard() {
           <div className="sm:col-span-3 lg:col-span-3">
             <select
               value={versionFilter}
-              onChange={(e) => setVersionFilter(e.target.value as 'all' | 'v1' | 'multi')}
+              onChange={(e) =>
+                setVersionFilter(e.target.value as "all" | "v1" | "multi")
+              }
               className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm text-[#0F172A] outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:focus:border-[#38BDF8] dark:focus:ring-[#38BDF8]/20"
             >
               <option value="all">Todas las versiones</option>
@@ -302,7 +317,9 @@ export default function VaultDashboard() {
           <div className="sm:col-span-3 lg:col-span-3">
             <select
               value={sortOrder}
-              onChange={(e) => setSortOrder(e.target.value as 'newest' | 'largest' | 'name')}
+              onChange={(e) =>
+                setSortOrder(e.target.value as "newest" | "largest" | "name")
+              }
               className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm text-[#0F172A] outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:focus:border-[#38BDF8] dark:focus:ring-[#38BDF8]/20"
             >
               <option value="newest">Más recientes primero</option>
@@ -315,8 +332,9 @@ export default function VaultDashboard() {
         {/* Advertencia informativa de contraseña en RAM */}
         {downloadSessionPassword === null && documents.length > 0 && (
           <p className="mt-4 rounded-lg border border-slate-200 bg-slate-100 px-3.5 py-2.5 text-xs leading-relaxed text-slate-600 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#94A3B8]">
-            Las descargas requieren tu contraseña de descarga: se solicitará una vez por pestaña y
-            vivirá sólo en la memoria RAM hasta recargar o cerrar sesión.
+            Las descargas requieren tu contraseña de descarga: se solicitará una
+            vez por pestaña y vivirá sólo en la memoria RAM hasta recargar o
+            cerrar sesión.
           </p>
         )}
 
@@ -327,6 +345,14 @@ export default function VaultDashboard() {
           >
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
             <span className="flex-1 break-words">{error}</span>
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={() => void fetchDocuments()}
+              className="rounded px-1.5 py-0.5 text-xs font-medium text-red-700 dark:text-red-300"
+            >
+              Actualizar catálogo
+            </button>
             <button
               type="button"
               onClick={clearError}
@@ -365,12 +391,13 @@ export default function VaultDashboard() {
                 Tu bóveda está vacía
               </h3>
               <p className="mt-1 max-w-sm text-sm text-slate-500 dark:text-[#94A3B8]">
-                Comienza resguardando tu primer documento protegido bajo cifrado de grado militar
+                Comienza resguardando tu primer documento protegido bajo cifrado
                 AES-GCM-256.
               </p>
               <button
                 type="button"
                 onClick={() => setUploadOpen(true)}
+                disabled={isLoading}
                 className="mt-5 inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 dark:text-[#07090E]"
               >
                 <Plus className="h-4 w-4 shrink-0" />
@@ -383,14 +410,15 @@ export default function VaultDashboard() {
                 No se encontraron documentos con los filtros seleccionados
               </p>
               <p className="mt-1 text-xs text-slate-500 dark:text-[#94A3B8]">
-                Prueba ajustando el término de búsqueda o restableciendo los selectores.
+                Prueba ajustando el término de búsqueda o restableciendo los
+                selectores.
               </p>
               <button
                 type="button"
                 onClick={() => {
-                  setSearchQuery('');
-                  setVersionFilter('all');
-                  setSortOrder('newest');
+                  setSearchQuery("");
+                  setVersionFilter("all");
+                  setSortOrder("newest");
                 }}
                 className="mt-3 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-200 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#F8FAFC] dark:hover:border-[#38BDF8]/40 dark:hover:text-[#BAE6FD]"
               >
@@ -407,6 +435,7 @@ export default function VaultDashboard() {
                         type="checkbox"
                         checked={allVisibleSelected}
                         onChange={handleToggleSelectAll}
+                        disabled={isLoading}
                         aria-label="Seleccionar todos los documentos visibles"
                         className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-[#38BDF8] focus:ring-2 focus:ring-[#38BDF8]/20 dark:border-[#1E293B]"
                       />
@@ -414,16 +443,28 @@ export default function VaultDashboard() {
                     <th scope="col" className="px-6 py-3.5 font-semibold">
                       Nombre del archivo
                     </th>
-                    <th scope="col" className="whitespace-nowrap px-4 py-3.5 font-semibold">
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap px-4 py-3.5 font-semibold"
+                    >
                       Versión
                     </th>
-                    <th scope="col" className="whitespace-nowrap px-4 py-3.5 font-semibold">
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap px-4 py-3.5 font-semibold"
+                    >
                       Huella SHA-256
                     </th>
-                    <th scope="col" className="whitespace-nowrap px-4 py-3.5 font-semibold">
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap px-4 py-3.5 font-semibold"
+                    >
                       Tamaño
                     </th>
-                    <th scope="col" className="whitespace-nowrap px-4 py-3.5 font-semibold">
+                    <th
+                      scope="col"
+                      className="whitespace-nowrap px-4 py-3.5 font-semibold"
+                    >
                       Fecha
                     </th>
                     <th
@@ -440,6 +481,7 @@ export default function VaultDashboard() {
                       key={doc.id}
                       doc={doc}
                       selected={selectedIds.includes(doc.id)}
+                      busy={isLoading}
                       onToggleSelect={handleToggleSelect}
                       downloading={downloadingId}
                       onDownload={handleDownload}
@@ -454,8 +496,8 @@ export default function VaultDashboard() {
         {/* Nota pie de página */}
         <p className="mt-4 flex items-center gap-1.5 text-xs text-slate-500 dark:text-[#94A3B8]">
           <ShieldCheck className="h-3.5 w-3.5 text-[#0284C7] dark:text-[#38BDF8]" />
-          La integridad SHA-256 se verifica tras cada descifrado. La clave vive sólo en la RAM de
-          esta pestaña.
+          La integridad SHA-256 se verifica tras cada descifrado. La clave vive
+          sólo en la RAM de esta pestaña.
         </p>
       </main>
 
@@ -469,7 +511,7 @@ export default function VaultDashboard() {
       <BulkDeleteModal
         open={bulkDeleteMode !== null}
         docsToDelete={docsForBulkDelete}
-        isDeleteAll={bulkDeleteMode === 'all'}
+        isDeleteAll={bulkDeleteMode === "all"}
         onClose={() => setBulkDeleteMode(null)}
         onDeleted={() => {
           setSelectedIds([]);

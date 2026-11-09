@@ -13,18 +13,27 @@
  * ---------------------------------------------------------------------------
  */
 
-import { useState } from 'react';
-import { Download, Eye, FileText, Folder, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
-import type { VaultDocument } from '../../../shared/types';
-import DeleteDocumentModal from './DeleteDocumentModal';
-import DocumentPreviewModal from './DocumentPreviewModal';
-import { formatDate, formatSize, shortHash } from '../utils/formatters';
-import { splitFolderAndFileName } from '../utils/folderUpload';
+import { useState } from "react";
+import {
+  Download,
+  Eye,
+  FileText,
+  Folder,
+  Loader2,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
+import type { VaultDocument } from "../../../shared/types";
+import DeleteDocumentModal from "./DeleteDocumentModal";
+import DocumentPreviewModal from "./DocumentPreviewModal";
+import { formatDate, formatSize, shortHash } from "../utils/formatters";
+import { splitFolderAndFileName } from "../utils/folderUpload";
 
 interface DocumentRowProps {
   doc: VaultDocument;
   downloading: string | null;
   selected: boolean;
+  busy: boolean;
   onToggleSelect: (id: string) => void;
   onDownload: (doc: VaultDocument) => void;
 }
@@ -33,13 +42,14 @@ export default function DocumentRow({
   doc,
   downloading,
   selected,
+  busy,
   onToggleSelect,
   onDownload,
 }: DocumentRowProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const version = doc.latestVersion;
-  const isBusy = downloading === doc.id;
+  const isBusy = busy || downloading === doc.id;
 
   const { folderPath, baseName } = splitFolderAndFileName(doc.name);
 
@@ -52,6 +62,7 @@ export default function DocumentRow({
             type="checkbox"
             checked={selected}
             onChange={() => onToggleSelect(doc.id)}
+            disabled={isBusy}
             aria-label={`Seleccionar documento ${doc.name}`}
             className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-[#38BDF8] focus:ring-2 focus:ring-[#38BDF8]/20 dark:border-[#1E293B]"
           />
@@ -80,7 +91,10 @@ export default function DocumentRow({
                 >
                   {baseName}
                 </span>
-                <span title="Cifrado AES-GCM-256 verificado" className="inline-flex shrink-0">
+                <span
+                  title="Cifrado AES-GCM-256 verificado"
+                  className="inline-flex shrink-0"
+                >
                   <ShieldCheck className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />
                 </span>
               </div>
@@ -91,24 +105,29 @@ export default function DocumentRow({
         {/* Columna Versión (Pastilla Seis Ojos Adaptable) */}
         <td className="whitespace-nowrap px-4 py-4">
           <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 font-mono text-xs font-medium text-sky-800 dark:border-[#38BDF8]/30 dark:bg-[#38BDF8]/10 dark:text-[#BAE6FD]">
-            v{version?.version_number ?? '—'}
+            v{version?.version_number ?? "—"}
           </span>
         </td>
 
         {/* Columna Huella SHA-256 */}
         <td className="whitespace-nowrap px-4 py-4">
           {version ? (
-            <span className="font-mono text-xs text-slate-500 dark:text-[#94A3B8]" title={version.sha256_hash}>
+            <span
+              className="font-mono text-xs text-slate-500 dark:text-[#94A3B8]"
+              title={version.sha256_hash}
+            >
               {shortHash(version.sha256_hash)}
             </span>
           ) : (
-            <span className="text-xs text-slate-400 dark:text-[#64748B]">sin versión</span>
+            <span className="text-xs text-slate-400 dark:text-[#64748B]">
+              sin versión
+            </span>
           )}
         </td>
 
         {/* Columna Tamaño */}
         <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-500 dark:text-[#94A3B8]">
-          {version ? formatSize(version.file_size) : '—'}
+          {version ? formatSize(version.file_size) : "—"}
         </td>
 
         {/* Columna Fecha */}

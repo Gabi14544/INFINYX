@@ -1,987 +1,537 @@
-/**
- * useVaultStore.ts
- * ---------------------------------------------------------------------------
- * Store global de la bóveda: catálogo de documentos y pipeline de
- * subida/descarga cifrada de extremo a extremo.
- *
- * Invariantes del modelo Zero-Knowledge
- * -------------------------------------
- * - Supabase Storage sólo recibe `ArrayBuffer` ya cifrados con AES-GCM-256.
- * - El texto plano nunca abandona la pestaña del navegador.
- * - `sha256_hash` se calcula SOBRE EL TEXTO PLANO antes de cifrar. Al
- *   descargar se recalcula tras descifrar y se compara: esto detecta tanto
- *   corrupción como manipulación del blob en el servidor (defensa en
- *   profundidad sobre el tag de autenticación de AES-GCM).
- * - La `vaultKey` se recibe siempre por parámetro; este store jamás la
- *   almacena, garantizando que la clave viva en un único lugar (`useAuthStore`).
- * ---------------------------------------------------------------------------
- */
-
-import type { User } from '@supabase/supabase-js';
-import { create } from 'zustand';
-
+import { create } from "zustand";
 import {
   computeSHA256,
   decryptBuffer,
+  decryptMetadata,
   encryptBuffer,
+  encryptMetadata,
   MAX_VAULT_FILE_SIZE_BYTES,
-} from '../../../core/crypto/vaultCrypto';
-import { supabase } from '../../../shared/lib/supabase';
+} from "../../../core/crypto/vaultCrypto";
+import { readBoundedResponse } from "../../../shared/lib/boundedDownload";
+import { supabase } from "../../../shared/lib/supabase";
+import { vaultAccess } from "../../../shared/lib/vaultAccess";
+import {
+  registerSensitiveCleanup,
+  sensitiveGeneration,
+} from "../../../shared/lib/sensitiveState";
+import { VAULT_BUCKET } from "../../../shared/types";
 import type {
-  AuditAction,
-  DocumentVersion,
-  Json,
+  DocumentRow,
+  DocumentVersionRow,
   UploadStatus,
   VaultDocument,
   VaultVersionDescriptor,
-} from '../../../shared/types';
-import { VAULT_BUCKET } from '../../../shared/types';
-import { useAuthStore } from '../../auth/stores/useAuthStore';
-import { useDownloadAuthStore } from './useDownloadAuthStore';
+} from "../../../shared/types";
+import { useAuthStore } from "../../auth/stores/useAuthStore";
+import { useDownloadAuthStore } from "./useDownloadAuthStore";
+import {
+  resolveLogicalDocumentName,
+  validateAndPrepareFiles,
+  splitFolderAndFileName,
+} from "../utils/folderUpload";
 
-/** MIME con el que se sube el blob cifrado: opaco, no filtra el tipo real. */
-const CIPHERTEXT_MIME = 'application/octet-stream';
-
-/** Número de versión asignado a la primera subida de un documento. */
-const FIRST_VERSION = 1;
-
-/** Límite máximo de versiones permitidas por documento lógico (v1..v3). */
-const MAX_VERSIONS = 3;
-
-/** Margen antes de revocar la object URL, para no abortar la descarga. */
-const OBJECT_URL_TTL_MS = 60_000;
-
-// ---------------------------------------------------------------------------
-// Utilidades internas
-// ---------------------------------------------------------------------------
-
-/** Normaliza errores de Supabase (`PostgrestError`, `StorageError`) y de JS. */
-function toErrorMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error && cause.message.length > 0) {
-    return cause.message;
-  }
-  if (typeof cause === 'string' && cause.length > 0) {
-    return cause;
-  }
-  if (typeof cause === 'object' && cause !== null && 'message' in cause) {
-    const { message } = cause;
-    if (typeof message === 'string' && message.length > 0) {
-      return message;
-    }
-  }
-  return fallback;
+function message(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "No se pudo completar la operación.";
 }
-
-/**
- * Obtiene el usuario autenticado, priorizando el que ya está en
- * `useAuthStore` y recurriendo a la red sólo si hace falta.
- */
-async function requireUser(): Promise<User> {
-  const { user, session } = useAuthStore.getState();
-  const cached = user ?? session?.user ?? null;
-  if (cached) {
-    return cached;
-  }
-
-  const { data, error } = await supabase.auth.getUser();
-  if (error) {
-    throw error;
-  }
-  if (!data.user) {
-    throw new Error('No hay un usuario autenticado en la sesión actual.');
-  }
-  return data.user;
-}
-
-/**
- * Inserta una entrada en `audit_logs` sin propagar fallos.
- *
- * Decisión de diseño: la auditoría no debe invalidar una operación
- * criptográfica ya completada con éxito (el blob está cifrado y almacenado).
- * Un fallo aquí se reporta por consola y se deja constancia.
- *
- * RECOMENDACIÓN: para auditoría no repudiable, replicar este registro en un
- * trigger `AFTER INSERT` sobre `document_versions` en Postgres, de modo que no
- * dependa de la buena voluntad del cliente.
- */
-async function writeAuditLog(
-  userId: string,
-  documentId: string | null,
-  action: AuditAction,
-  details: Json,
-): Promise<void> {
-  try {
-    const { error } = await supabase.from('audit_logs').insert({
-      user_id: userId,
-      document_id: documentId,
-      action,
-      details,
-    });
-
-    if (error) {
-      // Si la clave foránea a documents falla (p. ej. al registrar DELETE tras eliminar la fila),
-      // reintentamos con document_id: null pero manteniendo los detalles completos.
-      if (documentId && (error.code === '23503' || error.message.includes('foreign key'))) {
-        await supabase.from('audit_logs').insert({
-          user_id: userId,
-          document_id: null,
-          action,
-          details,
-        });
-        return;
-      }
-      console.warn(`[audit_logs] No se pudo registrar la acción "${action}":`, error.message);
-    }
-  } catch (cause) {
-    console.warn(
-      `[audit_logs] No se pudo registrar la acción "${action}":`,
-      toErrorMessage(cause, 'error desconocido'),
-    );
-  }
-}
-
-/**
- * Entrega un `ArrayBuffer` ya descifrado al disco del usuario mediante una
- * object URL temporal y un `<a download>` sintético.
- */
-function triggerBrowserDownload(
-  plainBuffer: ArrayBuffer,
-  fileName: string,
-  mimeType: string,
-): void {
-  const blob = new Blob([plainBuffer], {
-    type: mimeType.length > 0 ? mimeType : CIPHERTEXT_MIME,
-  });
-  const objectUrl = URL.createObjectURL(blob);
-
-  const anchor = document.createElement('a');
-  anchor.href = objectUrl;
-  anchor.download = fileName;
-  anchor.rel = 'noopener';
-  anchor.style.display = 'none';
-
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-
-  window.setTimeout(() => {
-    URL.revokeObjectURL(objectUrl);
-  }, OBJECT_URL_TTL_MS);
-}
-
-/**
- * Compensa una subida a Storage cuando el registro transaccional posterior
- * falla, evitando blobs huérfanos que nadie podría volver a referenciar.
- */
-async function rollbackStorageObject(storagePath: string): Promise<void> {
-  const { error } = await supabase.storage.from(VAULT_BUCKET).remove([storagePath]);
-  if (error) {
-    console.warn(
-      `[vault] Blob huérfano en "${storagePath}" (rollback fallido):`,
-      error.message,
-    );
-  }
-}
-
-/**
- * Convierte un documento del catálogo en un descriptor listo para
- * `downloadAndDecrypt`. Devuelve `null` si el documento no tiene versiones.
- */
-export function toVersionDescriptor(doc: VaultDocument): VaultVersionDescriptor | null {
-  const version = doc.latestVersion;
-  if (!version) {
-    return null;
-  }
-
+function activeVault() {
+  const { user, session, vaultKey } = useAuthStore.getState();
+  if (!user || !session || !vaultKey)
+    throw new Error("La bóveda está bloqueada.");
+  const generation = sensitiveGeneration();
   return {
-    documentId: doc.id,
-    versionId: version.id,
-    versionNumber: version.version_number,
-    storagePath: version.storage_path,
-    iv: version.iv,
-    sha256Hash: version.sha256_hash,
-    fileName: doc.name,
-    mimeType: doc.mimeType ?? CIPHERTEXT_MIME,
+    user,
+    vaultKey,
+    check: () => {
+      const state = useAuthStore.getState();
+      if (
+        generation !== sensitiveGeneration() ||
+        state.user?.id !== user.id ||
+        state.vaultKey !== vaultKey
+      )
+        throw new Error("La sesión cambió o la bóveda fue bloqueada.");
+    },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Contrato del store
-// ---------------------------------------------------------------------------
-
+function downloadPassword(): string {
+  const password = useDownloadAuthStore.getState().downloadSessionPassword;
+  if (!password)
+    throw new Error("Introduce tu contraseña de descarga/autorización.");
+  return password;
+}
+export function toVersionDescriptor(
+  doc: VaultDocument,
+): VaultVersionDescriptor | null {
+  const v = doc.latestVersion;
+  return v
+    ? {
+        documentId: doc.id,
+        versionId: v.id,
+        versionNumber: v.version_number,
+        storagePath: v.storage_path,
+        iv: v.iv,
+        sha256Hash: v.sha256_hash,
+        fileName: splitFolderAndFileName(doc.name).baseName,
+        mimeType: doc.mimeType ?? "application/octet-stream",
+      }
+    : null;
+}
 export interface BatchUploadProgress {
   current: number;
   total: number;
   currentFileName: string;
+  uploaded: number;
+  failed: number;
 }
-
-export interface VaultState {
-  /** Documentos del usuario, con los datos de su última versión resueltos. */
+interface VaultState {
   documents: VaultDocument[];
   isLoading: boolean;
-  /** Fase actual del pipeline de subida cifrada. */
   uploadStatus: UploadStatus;
   batchUploadProgress: BatchUploadProgress | null;
   error: string | null;
 }
-
-export interface VaultActions {
-  /** Carga `documents` + `document_versions` del usuario, más reciente primero. */
+interface VaultActions {
   fetchDocuments: () => Promise<void>;
-  /**
-   * Pipeline completo: resolver documento por nombre -> leer -> hashear ->
-   * cifrar -> subir -> registrar versión -> auditar.
-   *
-   * Si `name` ya existe para el usuario se añade una versión secuencial
-   * (`version_number = total + 1`) hasta un máximo de 3; superado el límite
-   * falla con "Se ha alcanzado el límite máximo de 3 versiones…".
-   * @returns El `id` del documento creado o versionado, o `null` si falló.
-   */
   uploadDocument: (
     file: File,
     vaultKey: CryptoKey,
-    logicalNameOverride?: string,
+    logicalName?: string,
   ) => Promise<string | null>;
-  /**
-   * Subida secuencial de un conjunto de archivos o carpeta completa,
-   * actualizando `batchUploadProgress` archivo por archivo.
-   */
   uploadDocumentsBatch: (
     items: Array<{ file: File; logicalName?: string }>,
     vaultKey: CryptoKey,
   ) => Promise<{ uploadedIds: string[]; failedFiles: string[] }>;
-  /**
-   * Pipeline inverso: descargar -> descifrar -> validar integridad ->
-   * auditar -> entregar al disco del usuario.
-   * @returns `true` si el archivo se descifró, validó y descargó.
-   */
+  deleteDocumentsBatch: (ids: string[], password?: string) => Promise<boolean>;
   downloadAndDecrypt: (
-    versionData: VaultVersionDescriptor,
+    version: VaultVersionDescriptor,
     vaultKey: CryptoKey,
   ) => Promise<boolean>;
-  /**
-   * Eliminación segura de un documento y sus versiones asociadas:
-   * a) Obtiene todas las versiones para conocer sus storage_path.
-   * b) Elimina los blobs .enc de Supabase Storage.
-   * c) Elimina el registro de la tabla "documents" (cascada en document_versions).
-   * d) Registra en la bitácora "audit_logs" la acción "DELETE".
-   * e) Actualiza inmediatamente el estado local de documentos en el store.
-   * @returns `true` si el documento fue eliminado con éxito.
-   */
-  deleteDocument: (documentId: string) => Promise<boolean>;
-  /**
-   * Eliminación segura en lote de múltiples documentos y sus versiones asociadas:
-   * a) Valida la contraseña de descarga en RAM.
-   * b) Obtiene todas las versiones de los documentIds.
-   * c) Elimina los blobs de Storage en lote.
-   * d) Elimina los registros de la tabla "documents" en lote.
-   * e) Registra la auditoría en lote.
-   * f) Actualiza el estado local de documentos en el store.
-   */
-  deleteDocumentsBatch: (documentIds: string[]) => Promise<boolean>;
-  /** Devuelve `uploadStatus` a `idle`. */
+  deleteDocument: (id: string) => Promise<boolean>;
   resetUploadStatus: () => void;
-  /** Limpia el último error registrado. */
   clearError: () => void;
-  /** Vacía el catálogo en memoria (p. ej. al cerrar sesión). */
   reset: () => void;
 }
-
-export type VaultStore = VaultState & VaultActions;
-
-const INITIAL_STATE: VaultState = {
+const initial: VaultState = {
   documents: [],
   isLoading: false,
-  uploadStatus: 'idle',
+  uploadStatus: "idle",
   batchUploadProgress: null,
   error: null,
 };
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
-export const useVaultStore = create<VaultStore>()((set, get) => ({
-  ...INITIAL_STATE,
-
-  fetchDocuments: async () => {
-    set({ isLoading: true, error: null });
-
-    try {
-      const user = await requireUser();
-
-      const { data: documentRows, error: documentsError } = await supabase
-        .from('documents')
-        .select('id, user_id, name, mime_type, created_at, updated_at')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false })
-        .order('created_at', { ascending: false });
-
-      if (documentsError) {
-        throw documentsError;
-      }
-
-      const rows = documentRows ?? [];
-      if (rows.length === 0) {
-        set({ documents: [], isLoading: false, error: null });
-        return;
-      }
-
-      const { data: versionRows, error: versionsError } = await supabase
-        .from('document_versions')
-        .select(
-          'id, document_id, version_number, storage_path, sha256_hash, iv, file_size, created_at',
-        )
-        .in(
-          'document_id',
-          rows.map((row) => row.id),
-        )
-        // Orden cronológico: la historia de cada documento crece con `created_at`
-        // (desempate determinista por `version_number`).
-        .order('created_at', { ascending: true })
-        .order('version_number', { ascending: true });
-
-      if (versionsError) {
-        throw versionsError;
-      }
-
-      // Agrupación por documento en orden cronológico ascendente, por lo que
-      // la última de cada grupo es la más reciente (`latestVersion`).
-      const versionsByDocument = new Map<string, DocumentVersion[]>();
-      for (const version of versionRows ?? []) {
-        const bucket = versionsByDocument.get(version.document_id);
-        if (bucket) {
-          bucket.push(version);
-        } else {
-          versionsByDocument.set(version.document_id, [version]);
-        }
-      }
-
-      const documents: VaultDocument[] = rows.map((row) => {
-        const versions = versionsByDocument.get(row.id) ?? [];
-        const latestVersion = versions.length > 0 ? (versions[versions.length - 1] ?? null) : null;
-        return {
-          id: row.id,
-          name: row.name,
-          mimeType: row.mime_type,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          latestVersion,
-          versionCount: versions.length,
-        };
+const objectUrls = new Set<string>();
+export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
+  // One pipeline for single files and folders. Never duplicate crypto or server commits.
+  const uploadOne = async (
+    file: File,
+    suppliedKey: CryptoKey,
+    logicalNameOverride?: string,
+  ) => {
+    const { user, vaultKey, check } = activeVault();
+    const logicalName = resolveLogicalDocumentName(file, logicalNameOverride);
+    if (suppliedKey !== vaultKey) throw new Error("Clave de otra sesión.");
+    if (
+      !file.size ||
+      file.size > MAX_VAULT_FILE_SIZE_BYTES ||
+      logicalName.length > 1024
+    )
+      throw new Error("Archivo vacío, demasiado grande o nombre inválido.");
+    // Name matching happens only in decrypted client memory, never in a server query.
+    const existing = get().documents.find((d) => d.name === logicalName);
+    const documentId = existing?.id ?? crypto.randomUUID();
+    const versionNumber = (existing?.latestVersion?.version_number ?? 0) + 1;
+    if (versionNumber > 3)
+      throw new Error("Se ha alcanzado el límite máximo de 3 versiones.");
+    const context = { userId: user.id, documentId, versionNumber };
+    const plain = await file.arrayBuffer();
+    check();
+    set({ uploadStatus: "hashing" });
+    const sha256 = await computeSHA256(plain);
+    check();
+    set({ uploadStatus: "encrypting" });
+    const metadata = await encryptMetadata(
+      {
+        name: logicalName,
+        mimeType: file.type || "application/octet-stream",
+        size: file.size,
+        sha256,
+      },
+      vaultKey,
+      context,
+    );
+    const { cipherBuffer, iv } = await encryptBuffer(plain, vaultKey, context);
+    check();
+    set({ uploadStatus: "uploading" });
+    // Random immutable paths prevent concurrent requests from overwriting or deleting each other's upload.
+    const storagePath = `${user.id}/${documentId}/${crypto.randomUUID()}.enc`;
+    const { error: storageError } = await supabase.storage
+      .from(VAULT_BUCKET)
+      .upload(storagePath, new Blob([cipherBuffer]), {
+        contentType: "application/octet-stream",
+        upsert: false,
+        cacheControl: "0",
       });
-
-      set({ documents, isLoading: false, error: null });
-    } catch (cause) {
-      set({
-        isLoading: false,
-        error: toErrorMessage(cause, 'No se pudieron cargar los documentos de la bóveda.'),
-      });
-    }
-  },
-
-  uploadDocument: async (file, vaultKey, logicalNameOverride) => {
-    set({ isLoading: true, uploadStatus: 'reading', error: null });
-
-    // Se declara fuera del `try` para poder compensar la subida si el
-    // registro en base de datos falla después.
-    let uploadedPath: string | null = null;
-
-    try {
-      const effectiveName = (logicalNameOverride?.trim() || file.name).trim();
-
-      if (file.size === 0) {
-        throw new Error('El archivo está vacío (0 bytes) y no puede procesarse.');
-      }
-      if (file.size > MAX_VAULT_FILE_SIZE_BYTES) {
-        throw new Error('El archivo supera el límite máximo permitido de 50 MB en memoria RAM.');
-      }
-
-      const user = await requireUser();
-
-      // 0) Resolución del documento lógico por nombre (versionado por `name`
-      //    y `user_id`). Si ya existe, la subida se asocia al `document_id`
-      //    existente con el siguiente secuencial; si no, se crea uno nuevo.
-      const { data: existingDocs, error: lookupError } = await supabase
-        .from('documents')
-        .select('id, name')
-        .eq('user_id', user.id)
-        .eq('name', effectiveName)
-        .limit(1);
-
-      if (lookupError) {
-        throw lookupError;
-      }
-
-      const existingDocumentId = existingDocs?.[0]?.id ?? null;
-      let targetDocumentId: string;
-      let nextVersionNumber: number;
-      let isNewDocument = false;
-
-      if (existingDocumentId) {
-        const { data: existingVersions, error: versionsLookupError } = await supabase
-          .from('document_versions')
-          .select('version_number')
-          .eq('document_id', existingDocumentId)
-          .order('created_at', { ascending: true })
-          .order('version_number', { ascending: true });
-
-        if (versionsLookupError) {
-          throw versionsLookupError;
-        }
-
-        const versionCount = existingVersions?.length ?? 0;
-
-        if (versionCount >= MAX_VERSIONS) {
-          throw new Error(
-            'Se ha alcanzado el límite máximo de 3 versiones para este documento',
-          );
-        }
-
-        targetDocumentId = existingDocumentId;
-        // Secuencial: cantidad existente + 1 (v1 -> v2 -> v3).
-        nextVersionNumber = versionCount + 1;
-      } else {
-        targetDocumentId = window.crypto.randomUUID();
-        nextVersionNumber = FIRST_VERSION;
-        isNewDocument = true;
-      }
-
-      // 1) Lectura del archivo en memoria.
-      const plainBuffer = await file.arrayBuffer();
-
-      // 2) Huella digital del TEXTO PLANO (referencia de integridad).
-      set({ uploadStatus: 'hashing' });
-      const sha256Hash = await computeSHA256(plainBuffer);
-
-      // 3) Cifrado AES-GCM-256 con IV aleatorio único por versión y metadatos autenticados (AAD).
-      set({ uploadStatus: 'encrypting' });
-      const { cipherBuffer, iv } = await encryptBuffer(plainBuffer, vaultKey, {
-        userId: user.id,
-        documentId: targetDocumentId,
-        versionNumber: nextVersionNumber,
-      });
-
-      // 4) Subida del ciphertext. Para documentos nuevos el `documentId` se
-      //    genera en cliente para construir la ruta antes de existir la fila;
-      //    para versiones adicionales se reutiliza el `document_id` existente
-      //    con el siguiente `vN.enc`.
-      set({ uploadStatus: 'uploading' });
-      const storagePath = `${user.id}/${targetDocumentId}/v${nextVersionNumber}.enc`;
-      const mimeType = file.type.length > 0 ? file.type : CIPHERTEXT_MIME;
-
-      const { error: storageError } = await supabase.storage
-        .from(VAULT_BUCKET)
-        .upload(storagePath, new Blob([cipherBuffer], { type: CIPHERTEXT_MIME }), {
-          contentType: CIPHERTEXT_MIME,
-          upsert: false,
-        });
-
-      if (storageError) {
-        throw storageError;
-      }
-      uploadedPath = storagePath;
-
-      // 5) Registro transaccional: documento (sólo si es nuevo) + versión.
-      if (isNewDocument) {
-        const { error: documentError } = await supabase.from('documents').insert({
-          id: targetDocumentId,
-          user_id: user.id,
-          name: effectiveName,
-          mime_type: mimeType,
-        });
-
-        if (documentError) {
-          throw documentError;
-        }
-      } else {
-        // Refresca `updated_at` (y tipo) para que el catálogo ordene por
-        // actividad reciente tras cada nueva versión.
-        const { error: touchError } = await supabase
-          .from('documents')
-          .update({ mime_type: mimeType, updated_at: new Date().toISOString() })
-          .eq('id', targetDocumentId);
-
-        if (touchError) {
-          throw touchError;
-        }
-      }
-
-      const { error: versionError } = await supabase.from('document_versions').insert({
-        document_id: targetDocumentId,
-        version_number: nextVersionNumber,
+    if (storageError) throw storageError;
+    check();
+    const { data: versionId, error: commitError } = await supabase.rpc(
+      "commit_vault_version",
+      {
+        p_document_id: documentId,
+        p_version_number: versionNumber,
+        p_storage_path: storagePath,
+        p_iv: iv,
+        p_metadata: metadata,
+      },
+    );
+    if (commitError) throw commitError;
+    check();
+    if (typeof versionId !== "string")
+      throw new Error(
+        "Respuesta de versión inválida. Actualiza el catálogo antes de reintentar.",
+      );
+    const now = new Date().toISOString();
+    const updated: VaultDocument = {
+      id: documentId,
+      name: logicalName,
+      mimeType: file.type || "application/octet-stream",
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      versionCount: versionNumber,
+      latestVersion: {
+        id: versionId,
+        document_id: documentId,
+        version_number: versionNumber,
         storage_path: storagePath,
-        sha256_hash: sha256Hash,
+        encrypted_metadata: metadata,
         iv,
-        // Tamaño del texto plano: es el dato que la UI muestra al usuario.
-        // El tamaño del ciphertext queda registrado en la auditoría.
+        created_at: now,
+        sha256_hash: sha256,
         file_size: file.size,
-      });
-
-      if (versionError) {
-        if (isNewDocument) {
-          // Compensa la fila de `documents` para no dejar un documento sin
-          // ninguna versión descargable.
-          await supabase.from('documents').delete().eq('id', targetDocumentId);
-        }
-        throw versionError;
-      }
-
-      uploadedPath = null; // Transacción consolidada: ya no hay que compensar.
-
-      // 6) Auditoría (no bloqueante).
-      await writeAuditLog(user.id, targetDocumentId, 'UPLOAD', {
-        file_name: effectiveName,
-        mime_type: mimeType,
-        version_number: nextVersionNumber,
-        storage_path: storagePath,
-        plaintext_size: file.size,
-        ciphertext_size: cipherBuffer.byteLength,
-        sha256: sha256Hash,
-      });
-
-      set({ uploadStatus: 'done', isLoading: false, error: null });
-
-      // Refresca el catálogo para que la UI vea el documento recién creado.
-      await get().fetchDocuments();
-
-      return targetDocumentId;
-    } catch (cause) {
-      if (uploadedPath) {
-        await rollbackStorageObject(uploadedPath);
-      }
-
-      set({
-        uploadStatus: 'error',
-        isLoading: false,
-        error: toErrorMessage(cause, 'No se pudo cifrar y subir el documento.'),
-      });
-
-      return null;
-    }
-  },
-
-  uploadDocumentsBatch: async (items, vaultKey) => {
-    set({ isLoading: true, error: null });
-    const uploadedIds: string[] = [];
-    const failedFiles: string[] = [];
-
-    for (let i = 0; i < items.length; i += 1) {
-      const item = items[i];
-      if (!item) continue;
-      const logicalName = (item.logicalName?.trim() || item.file.name).trim();
-
-      set({
-        batchUploadProgress: {
-          current: i + 1,
-          total: items.length,
-          currentFileName: logicalName,
-        },
-      });
-
-      let uploadedPath: string | null = null;
+      },
+    };
+    set((state) => ({
+      documents: [
+        updated,
+        ...state.documents.filter((d) => d.id !== documentId),
+      ],
+    }));
+    return documentId;
+  };
+  return {
+    ...initial,
+    fetchDocuments: async () => {
+      const generation = sensitiveGeneration();
+      set({ isLoading: true, error: null });
       try {
-        if (item.file.size === 0) {
-          throw new Error(`El archivo "${logicalName}" está vacío (0 bytes).`);
+        const { user, vaultKey, check } = activeVault();
+        // Fetch every document, including vaults larger than PostgREST's default 1000-row cap.
+        const rows: DocumentRow[] = [];
+        for (let offset = 0; ; offset += 500) {
+          const { data, error } = await supabase
+            .from("documents")
+            .select("id,user_id,deleting,created_at,updated_at")
+            .eq("user_id", user.id)
+            .order("updated_at", { ascending: false })
+            .order("id", { ascending: false })
+            .range(offset, offset + 499);
+          if (error) throw error;
+          check();
+          rows.push(...(data ?? []));
+          if (!data || data.length < 500) break;
         }
-        if (item.file.size > MAX_VAULT_FILE_SIZE_BYTES) {
-          throw new Error(`El archivo "${logicalName}" supera el límite máximo de 50 MB.`);
+        const versions: DocumentVersionRow[] = [];
+        // Three immutable versions per document: 100 IDs stay below URL and row limits.
+        for (let offset = 0; offset < rows.length; offset += 100) {
+          const { data, error } = await supabase
+            .from("document_versions")
+            .select("*")
+            .in(
+              "document_id",
+              rows.slice(offset, offset + 100).map((row) => row.id),
+            )
+            .order("version_number");
+          if (error) throw error;
+          check();
+          versions.push(...(data ?? []));
         }
-
-        const user = await requireUser();
-
-        // 0) Resolución del documento lógico por nombre
-        const { data: existingDocs, error: lookupError } = await supabase
-          .from('documents')
-          .select('id, name')
-          .eq('user_id', user.id)
-          .eq('name', logicalName)
-          .limit(1);
-
-        if (lookupError) throw lookupError;
-
-        const existingDocumentId = existingDocs?.[0]?.id ?? null;
-        let targetDocumentId: string;
-        let nextVersionNumber: number;
-        let isNewDocument = false;
-
-        if (existingDocumentId) {
-          const { data: existingVersions, error: versionsLookupError } = await supabase
-            .from('document_versions')
-            .select('version_number')
-            .eq('document_id', existingDocumentId)
-            .order('created_at', { ascending: true })
-            .order('version_number', { ascending: true });
-
-          if (versionsLookupError) throw versionsLookupError;
-
-          const versionCount = existingVersions?.length ?? 0;
-          if (versionCount >= MAX_VERSIONS) {
-            throw new Error(`Límite máximo de 3 versiones alcanzado para "${logicalName}".`);
-          }
-
-          targetDocumentId = existingDocumentId;
-          nextVersionNumber = versionCount + 1;
-        } else {
-          targetDocumentId = window.crypto.randomUUID();
-          nextVersionNumber = FIRST_VERSION;
-          isNewDocument = true;
+        const byDocument = new Map<string, DocumentVersionRow[]>();
+        for (const version of versions) {
+          const history = byDocument.get(version.document_id) ?? [];
+          history.push(version);
+          byDocument.set(version.document_id, history);
         }
-
-        // 1) Lectura
-        set({ uploadStatus: 'reading' });
-        const plainBuffer = await item.file.arrayBuffer();
-
-        // 2) Hashing
-        set({ uploadStatus: 'hashing' });
-        const sha256Hash = await computeSHA256(plainBuffer);
-
-        // 3) Cifrado
-        set({ uploadStatus: 'encrypting' });
-        const { cipherBuffer, iv } = await encryptBuffer(plainBuffer, vaultKey, {
-          userId: user.id,
-          documentId: targetDocumentId,
-          versionNumber: nextVersionNumber,
-        });
-
-        // 4) Subida a storage
-        set({ uploadStatus: 'uploading' });
-        const storagePath = `${user.id}/${targetDocumentId}/v${nextVersionNumber}.enc`;
-        const mimeType = item.file.type.length > 0 ? item.file.type : CIPHERTEXT_MIME;
-
-        const { error: storageError } = await supabase.storage
-          .from(VAULT_BUCKET)
-          .upload(storagePath, new Blob([cipherBuffer], { type: CIPHERTEXT_MIME }), {
-            contentType: CIPHERTEXT_MIME,
-            upsert: false,
+        const documents: VaultDocument[] = [];
+        for (const row of rows) {
+          const history = byDocument.get(row.id) ?? [];
+          const latest = history.at(-1);
+          if (!latest) continue;
+          const metadata = await decryptMetadata(
+            latest.encrypted_metadata,
+            vaultKey,
+            {
+              userId: user.id,
+              documentId: row.id,
+              versionNumber: latest.version_number,
+            },
+          );
+          check();
+          documents.push({
+            id: row.id,
+            name: metadata.name,
+            mimeType: metadata.mimeType,
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            versionCount: history.length,
+            latestVersion: {
+              ...latest,
+              sha256_hash: metadata.sha256,
+              file_size: metadata.size,
+            },
           });
-
-        if (storageError) throw storageError;
-        uploadedPath = storagePath;
-
-        // 5) Registro transaccional
-        if (isNewDocument) {
-          const { error: documentError } = await supabase.from('documents').insert({
-            id: targetDocumentId,
-            user_id: user.id,
-            name: logicalName,
-            mime_type: mimeType,
-          });
-          if (documentError) throw documentError;
-        } else {
-          const { error: touchError } = await supabase
-            .from('documents')
-            .update({ mime_type: mimeType, updated_at: new Date().toISOString() })
-            .eq('id', targetDocumentId);
-          if (touchError) throw touchError;
         }
-
-        const { error: versionError } = await supabase.from('document_versions').insert({
-          document_id: targetDocumentId,
-          version_number: nextVersionNumber,
-          storage_path: storagePath,
-          sha256_hash: sha256Hash,
-          iv,
-          file_size: item.file.size,
-        });
-
-        if (versionError) {
-          if (isNewDocument) {
-            await supabase.from('documents').delete().eq('id', targetDocumentId);
-          }
-          throw versionError;
-        }
-
-        uploadedPath = null;
-
-        // 6) Auditoría
-        await writeAuditLog(user.id, targetDocumentId, 'UPLOAD', {
-          file_name: logicalName,
-          mime_type: mimeType,
-          version_number: nextVersionNumber,
-          storage_path: storagePath,
-          plaintext_size: item.file.size,
-          ciphertext_size: cipherBuffer.byteLength,
-          sha256: sha256Hash,
-        });
-
-        uploadedIds.push(targetDocumentId);
-      } catch (cause) {
-        if (uploadedPath) {
-          await rollbackStorageObject(uploadedPath);
-        }
-        console.warn(`[vault] Falló la subida de "${logicalName}":`, cause);
-        failedFiles.push(logicalName);
+        check();
+        set({ documents, isLoading: false });
+      } catch (error) {
+        if (generation === sensitiveGeneration())
+          set({ isLoading: false, error: message(error) });
       }
-    }
-
-    await get().fetchDocuments();
-    const isAllFailed = failedFiles.length === items.length && items.length > 0;
-
-    set({
-      isLoading: false,
-      uploadStatus: isAllFailed ? 'error' : 'done',
-      error: isAllFailed
-        ? 'No se pudo subir ningún archivo del lote.'
-        : failedFiles.length > 0
-          ? `Se subieron ${uploadedIds.length} archivos, pero fallaron ${failedFiles.length}.`
-          : null,
-    });
-
-    return { uploadedIds, failedFiles };
-  },
-
-  downloadAndDecrypt: async (versionData, vaultKey) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      if (!useDownloadAuthStore.getState().hasDownloadSessionPassword()) {
-        throw new Error('Operación bloqueada: debes autorizar la sesión con tu contraseña de descarga.');
-      }
-
-      const user = await requireUser();
-
-      // 1) Descarga del blob cifrado.
-      const { data: encryptedBlob, error: storageError } = await supabase.storage
-        .from(VAULT_BUCKET)
-        .download(versionData.storagePath);
-
-      if (storageError) {
-        throw storageError;
-      }
-      if (!encryptedBlob) {
-        throw new Error('El blob cifrado no se encontró en el almacenamiento.');
-      }
-
-      const cipherBuffer = await encryptedBlob.arrayBuffer();
-
-      // 2) Descifrado con verificación de metadatos (AAD). AES-GCM rechaza automáticamente si el tag de
-      //    autenticación no cuadra (clave incorrecta o ciphertext alterado).
-      const plainBuffer = await decryptBuffer(cipherBuffer, vaultKey, versionData.iv, {
-        userId: user.id,
-        documentId: versionData.documentId,
-        versionNumber: versionData.versionNumber,
-      });
-
-      // 3) Verificación de integridad contra el hash almacenado.
-      const actualHash = await computeSHA256(plainBuffer);
-      if (actualHash !== versionData.sha256Hash) {
-        await writeAuditLog(user.id, versionData.documentId, 'INTEGRITY_FAILURE', {
-          version_id: versionData.versionId,
-          version_number: versionData.versionNumber,
-          storage_path: versionData.storagePath,
-          expected_sha256: versionData.sha256Hash,
-          actual_sha256: actualHash,
-        });
-
-        throw new Error(
-          'Integridad comprometida: el SHA-256 del contenido descifrado no coincide con el registrado. Descarga abortada.',
-        );
-      }
-
-      // 4) Auditoría del acceso al texto plano.
-      await writeAuditLog(user.id, versionData.documentId, 'DOWNLOAD_DECRYPT', {
-        version_id: versionData.versionId,
-        version_number: versionData.versionNumber,
-        storage_path: versionData.storagePath,
-        file_name: versionData.fileName,
-        plaintext_size: plainBuffer.byteLength,
-        sha256: actualHash,
-        integrity_verified: true,
-      });
-
-      // 5) Entrega al disco del usuario.
-      triggerBrowserDownload(plainBuffer, versionData.fileName, versionData.mimeType);
-
-      set({ isLoading: false, error: null });
-      return true;
-    } catch (cause) {
+    },
+    uploadDocument: async (file, key, logicalName) => {
+      if (get().isLoading) return null;
+      const generation = sensitiveGeneration();
       set({
-        isLoading: false,
-        error: toErrorMessage(
-          cause,
-          'No se pudo descargar ni descifrar el documento. Verifica que la bóveda esté desbloqueada con la passphrase correcta.',
-        ),
-      });
-      return false;
-    }
-  },
-
-  deleteDocument: async (documentId: string) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      if (!useDownloadAuthStore.getState().hasDownloadSessionPassword()) {
-        throw new Error('Operación bloqueada: debes autorizar la sesión con tu contraseña de descarga.');
-      }
-
-      const user = await requireUser();
-      const targetDoc = get().documents.find((doc) => doc.id === documentId);
-
-      // a) Obtiene todas las versiones del documento para conocer sus storage_path.
-      const { data: versions, error: versionsError } = await supabase
-        .from('document_versions')
-        .select('storage_path')
-        .eq('document_id', documentId);
-
-      if (versionsError) {
-        throw versionsError;
-      }
-
-      // b) Elimina los blobs .enc correspondientes de Supabase Storage.
-      const storagePaths = (versions ?? [])
-        .map((version) => version.storage_path)
-        .filter((path): path is string => typeof path === 'string' && path.length > 0);
-
-      if (storagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from(VAULT_BUCKET)
-          .remove(storagePaths);
-
-        if (storageError) {
-          console.warn('[vault] Error al eliminar blobs de Storage:', storageError.message);
-        }
-      }
-
-      // c) Elimina el registro de la tabla "documents" (las versiones en "document_versions" se eliminarán en cascada).
-      const { error: deleteDocError } = await supabase
-        .from('documents')
-        .delete()
-        .eq('id', documentId)
-        .eq('user_id', user.id);
-
-      if (deleteDocError) {
-        throw deleteDocError;
-      }
-
-      // d) Registra en la tabla "audit_logs" la acción "DELETE" con el user_id y document_id.
-      await writeAuditLog(user.id, documentId, 'DELETE', {
-        file_name: targetDoc?.name ?? null,
-        storage_paths_removed: storagePaths,
-        version_count: storagePaths.length,
-        deleted_at: new Date().toISOString(),
-      });
-
-      // e) Actualiza el estado local de documentos en el store para reflejar la eliminación inmediatamente.
-      set((state) => ({
-        documents: state.documents.filter((doc) => doc.id !== documentId),
-        isLoading: false,
+        isLoading: true,
         error: null,
-      }));
-
-      return true;
-    } catch (cause) {
-      set({
-        isLoading: false,
-        error: toErrorMessage(cause, 'No se pudo eliminar el documento de la bóveda.'),
+        uploadStatus: "reading",
+        batchUploadProgress: null,
       });
-      return false;
-    }
-  },
-
-  deleteDocumentsBatch: async (documentIds: string[]) => {
-    set({ isLoading: true, error: null });
-
-    try {
-      if (!useDownloadAuthStore.getState().hasDownloadSessionPassword()) {
-        throw new Error('Operación bloqueada: debes autorizar con tu contraseña de descarga.');
+      try {
+        const id = await uploadOne(file, key, logicalName);
+        await get().fetchDocuments();
+        if (generation === sensitiveGeneration())
+          set({ isLoading: false, uploadStatus: "done" });
+        return id;
+      } catch (error) {
+        if (generation === sensitiveGeneration())
+          set({
+            isLoading: false,
+            uploadStatus: "error",
+            error: message(error),
+          });
+        return null;
       }
-
-      if (documentIds.length === 0) {
+    },
+    uploadDocumentsBatch: async (items, key) => {
+      const uploadedIds: string[] = [];
+      const failedFiles: string[] = [];
+      if (get().isLoading)
+        return {
+          uploadedIds,
+          failedFiles: items.map((i) => i.logicalName ?? i.file.name),
+        };
+      if (!items.length) return { uploadedIds, failedFiles };
+      const generation = sensitiveGeneration();
+      const prepared = validateAndPrepareFiles(
+        items.map((i) => ({ file: i.file, relativePath: i.logicalName })),
+      );
+      if (prepared.error) {
+        set({
+          uploadStatus: "error",
+          error: prepared.error,
+          batchUploadProgress: null,
+        });
+        return {
+          uploadedIds,
+          failedFiles: items.map((i) => i.logicalName ?? i.file.name),
+        };
+      }
+      set({ isLoading: true, error: null, uploadStatus: "reading" });
+      try {
+        const vault = activeVault();
+        for (let index = 0; index < prepared.validFiles.length; index++) {
+          vault.check();
+          const item = prepared.validFiles[index]!;
+          set({
+            batchUploadProgress: {
+              current: index + 1,
+              total: prepared.validFiles.length,
+              currentFileName: item.logicalName,
+              uploaded: uploadedIds.length,
+              failed: failedFiles.length,
+            },
+          });
+          try {
+            uploadedIds.push(await uploadOne(item.file, key, item.logicalName));
+          } catch (error) {
+            vault.check();
+            failedFiles.push(item.logicalName);
+            // Do not log filenames or plaintext metadata outside the local UI.
+            set({ error: message(error) });
+          }
+        }
+        vault.check();
+        set((state) => ({
+          batchUploadProgress: state.batchUploadProgress && {
+            ...state.batchUploadProgress,
+            uploaded: uploadedIds.length,
+            failed: failedFiles.length,
+          },
+        }));
+        await get().fetchDocuments();
+        vault.check();
+        const refreshError = get().error;
+        set({
+          isLoading: false,
+          uploadStatus: failedFiles.length ? "error" : "done",
+          error: failedFiles.length
+            ? `Se protegieron ${uploadedIds.length} archivos y fallaron ${failedFiles.length}. Puedes reintentar los fallidos.`
+            : refreshError,
+        });
+      } catch (error) {
+        if (generation === sensitiveGeneration())
+          set({
+            isLoading: false,
+            uploadStatus: "error",
+            error: message(error),
+          });
+        for (const item of prepared.validFiles.slice(
+          uploadedIds.length + failedFiles.length,
+        ))
+          failedFiles.push(item.logicalName);
+      }
+      return { uploadedIds, failedFiles };
+    },
+    deleteDocumentsBatch: async (ids, suppliedPassword) => {
+      if (get().isLoading) return false;
+      const uniqueIds = [...new Set(ids)];
+      if (!uniqueIds.length) return true;
+      const generation = sensitiveGeneration();
+      let deleted = 0;
+      set({ isLoading: true, error: null });
+      try {
+        const { check } = activeVault();
+        const password = suppliedPassword ?? downloadPassword();
+        for (let offset = 0; offset < uniqueIds.length; offset += 50) {
+          check();
+          const chunk = uniqueIds.slice(offset, offset + 50);
+          const result = await vaultAccess<{
+            ok: true;
+            deletedIds: string[];
+            failedIds: string[];
+          }>("delete-batch", password, { documentIds: chunk });
+          check();
+          const expected = new Set(chunk);
+          const returned = [...result.deletedIds, ...result.failedIds];
+          if (
+            returned.length !== chunk.length ||
+            new Set(returned).size !== returned.length ||
+            returned.some((id) => !expected.has(id))
+          )
+            throw new Error(
+              "Resultado de borrado inválido. Actualiza el catálogo.",
+            );
+          const removed = new Set(result.deletedIds);
+          deleted += removed.size;
+          useDownloadAuthStore.getState().setDownloadSessionPassword(password);
+          set((state) => ({
+            documents: state.documents.filter((doc) => !removed.has(doc.id)),
+          }));
+          if (result.failedIds.length)
+            throw new Error(
+              `Se eliminaron ${deleted} documentos; ${uniqueIds.length - deleted} siguen pendientes. Reintenta los restantes.`,
+            );
+        }
         set({ isLoading: false });
         return true;
+      } catch (error) {
+        if (generation === sensitiveGeneration())
+          set({
+            isLoading: false,
+            error: `${message(error)}${deleted ? ` Se eliminaron ${deleted} documentos antes del fallo.` : ""}`,
+          });
+        return false;
       }
-
-      const user = await requireUser();
-      const idSet = new Set(documentIds);
-      const targetDocs = get().documents.filter((doc) => idSet.has(doc.id));
-      const fileNames = targetDocs.map((doc) => doc.name);
-
-      // Consulta en una sola llamada todas las versiones asociadas
-      const { data: versions, error: versionsError } = await supabase
-        .from('document_versions')
-        .select('document_id, storage_path')
-        .in('document_id', documentIds);
-
-      if (versionsError) {
-        throw versionsError;
+    },
+    downloadAndDecrypt: async (version, suppliedKey) => {
+      if (get().isLoading) return false;
+      const generation = sensitiveGeneration();
+      set({ isLoading: true, error: null });
+      try {
+        const { user, vaultKey, check } = activeVault();
+        if (suppliedKey !== vaultKey) throw new Error("Clave de otra sesión.");
+        // The server resolves ownership/path and verifies the second password on EVERY request.
+        const result = await vaultAccess<{ url: string }>(
+          "download",
+          downloadPassword(),
+          { versionId: version.versionId },
+        );
+        check();
+        const response = await fetch(result.url, {
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+        });
+        const encrypted = await readBoundedResponse(
+          response,
+          MAX_VAULT_FILE_SIZE_BYTES + 16,
+        );
+        check();
+        const plain = await decryptBuffer(encrypted, vaultKey, version.iv, {
+          userId: user.id,
+          documentId: version.documentId,
+          versionNumber: version.versionNumber,
+        });
+        const hash = await computeSHA256(plain);
+        check();
+        if (hash !== version.sha256Hash)
+          throw new Error("Integridad comprometida. Descarga abortada.");
+        const url = URL.createObjectURL(
+          new Blob([plain], { type: version.mimeType }),
+        );
+        objectUrls.add(url);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = version.fileName;
+        a.rel = "noopener";
+        a.click();
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+          objectUrls.delete(url);
+        }, 1000);
+        set({ isLoading: false });
+        return true;
+      } catch (error) {
+        if (generation === sensitiveGeneration())
+          set({ isLoading: false, error: message(error) });
+        return false;
       }
-
-      // Elimina todos los blobs .enc de Supabase Storage en una sola operación
-      const storagePaths = (versions ?? [])
-        .map((version) => version.storage_path)
-        .filter((path): path is string => typeof path === 'string' && path.length > 0);
-
-      if (storagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage
-          .from(VAULT_BUCKET)
-          .remove(storagePaths);
-
-        if (storageError) {
-          console.warn('[vault] Error al eliminar blobs de Storage en lote:', storageError.message);
-        }
+    },
+    deleteDocument: async (id) => {
+      if (get().isLoading) return false;
+      const generation = sensitiveGeneration();
+      set({ isLoading: true, error: null });
+      try {
+        const { check } = activeVault();
+        await vaultAccess("delete", downloadPassword(), { documentId: id });
+        check();
+        set((state) => ({
+          documents: state.documents.filter((d) => d.id !== id),
+          isLoading: false,
+        }));
+        return true;
+      } catch (error) {
+        if (generation === sensitiveGeneration())
+          set({ isLoading: false, error: message(error) });
+        return false;
       }
-
-      // Elimina todos los documentos seleccionados de la tabla documents en una sola operación
-      const { error: deleteError } = await supabase
-        .from('documents')
-        .delete()
-        .in('id', documentIds)
-        .eq('user_id', user.id);
-
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      // Registra un evento DELETE en audit_logs con el detalle de la eliminación en lote
-      await writeAuditLog(user.id, null, 'DELETE', {
-        deleted_count: documentIds.length,
-        file_names: fileNames,
-        storage_paths_removed: storagePaths,
-        deleted_at: new Date().toISOString(),
-      });
-
-      // Filtra los documentIds eliminados del estado local documents de forma inmediata
-      set((state) => ({
-        documents: state.documents.filter((doc) => !idSet.has(doc.id)),
-        isLoading: false,
-        error: null,
-      }));
-
-      return true;
-    } catch (cause) {
-      set({
-        isLoading: false,
-        error: toErrorMessage(cause, 'No se pudieron eliminar los documentos seleccionados.'),
-      });
-      return false;
-    }
-  },
-
-  resetUploadStatus: () => {
-    set({ uploadStatus: 'idle', batchUploadProgress: null });
-  },
-
-  clearError: () => {
-    set({ error: null });
-  },
-
-  reset: () => {
-    set({ ...INITIAL_STATE });
-  },
-}));
-
-// ---------------------------------------------------------------------------
-// Selectores
-// ---------------------------------------------------------------------------
-
-/** `true` mientras haya una subida cifrada en curso. */
-export const selectIsUploading = (state: VaultStore): boolean =>
-  state.uploadStatus === 'reading' ||
-  state.uploadStatus === 'hashing' ||
-  state.uploadStatus === 'encrypting' ||
-  state.uploadStatus === 'uploading';
-
-/** Documentos que ya tienen al menos una versión cifrada descargable. */
-export const selectDownloadableDocuments = (state: VaultStore): VaultDocument[] =>
-  state.documents.filter((doc) => doc.latestVersion !== null);
+    },
+    resetUploadStatus: () =>
+      set({ uploadStatus: "idle", batchUploadProgress: null }),
+    clearError: () => set({ error: null }),
+    reset: () => set({ ...initial }),
+  };
+});
+registerSensitiveCleanup(() => {
+  useVaultStore.getState().reset();
+  for (const url of objectUrls) URL.revokeObjectURL(url);
+  objectUrls.clear();
+});

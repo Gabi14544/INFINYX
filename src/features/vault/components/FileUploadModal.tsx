@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import type { DragEvent } from 'react';
+import { useEffect, useRef, useState } from "react";
+import type { DragEvent } from "react";
 import {
   AlertTriangle,
   Check,
@@ -10,16 +10,16 @@ import {
   ShieldCheck,
   Upload,
   X,
-} from 'lucide-react';
-import { useAuthStore } from '../../auth/stores/useAuthStore';
-import { useVaultStore } from '../stores/useVaultStore';
-import { formatSize } from '../utils/formatters';
-import type { UploadStatus } from '../../../shared/types';
+} from "lucide-react";
+import { useAuthStore } from "../../auth/stores/useAuthStore";
+import { useVaultStore } from "../stores/useVaultStore";
+import { formatSize } from "../utils/formatters";
+import type { UploadStatus } from "../../../shared/types";
 import {
   extractDroppedFiles,
   validateAndPrepareFiles,
   type PreparedVaultFile,
-} from '../utils/folderUpload';
+} from "../utils/folderUpload";
 
 interface FileUploadModalProps {
   open: boolean;
@@ -36,7 +36,10 @@ const STEP_INDEX: Record<UploadStatus, number> = {
   error: -1,
 };
 
-export default function FileUploadModal({ open, onClose }: FileUploadModalProps) {
+export default function FileUploadModal({
+  open,
+  onClose,
+}: FileUploadModalProps) {
   const vaultKey = useAuthStore((s) => s.vaultKey);
   const uploadStatus = useVaultStore((s) => s.uploadStatus);
   const batchUploadProgress = useVaultStore((s) => s.batchUploadProgress);
@@ -53,11 +56,15 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const selectionEpoch = useRef(0);
 
   // Al abrir el modal se restablece el estado para partir limpios
   useEffect(() => {
+    const epoch = selectionEpoch;
+    const current = ++epoch.current;
     if (open) {
       queueMicrotask(() => {
+        if (epoch.current !== current) return;
         setFiles([]);
         setLocalError(null);
         setDragging(false);
@@ -65,38 +72,48 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
         clearError();
       });
     }
+    return () => {
+      epoch.current++;
+    };
   }, [open, resetUploadStatus, clearError]);
 
   if (!open) return null;
 
-  const busy = vaultIsLoading && uploadStatus !== 'done' && uploadStatus !== 'error';
-  const finished = uploadStatus === 'done';
-  const failed = uploadStatus === 'error';
+  const busy =
+    vaultIsLoading && uploadStatus !== "done" && uploadStatus !== "error";
+  const finished = uploadStatus === "done";
+  const failed = uploadStatus === "error";
   const activeIndex = STEP_INDEX[uploadStatus];
   const isBatch = Boolean(batchUploadProgress && batchUploadProgress.total > 1);
 
   let progressPct = 0;
-  if (uploadStatus === 'done') {
+  if (uploadStatus === "done") {
     progressPct = 100;
-  } else if (uploadStatus === 'error') {
+  } else if (uploadStatus === "error") {
     progressPct = 100;
   } else if (isBatch && batchUploadProgress) {
     const currentIdx = Math.max(0, batchUploadProgress.current - 1);
     const phaseFraction = Math.max(0, activeIndex) / 4;
     progressPct = Math.min(
       99,
-      Math.round(((currentIdx + phaseFraction) / batchUploadProgress.total) * 100),
+      Math.round(
+        ((currentIdx + phaseFraction) / batchUploadProgress.total) * 100,
+      ),
     );
-  } else if (uploadStatus !== 'idle') {
+  } else if (uploadStatus !== "idle") {
     progressPct = Math.min(100, Math.round((activeIndex / 4) * 100));
   }
 
   const handleFilesSelected = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0 || busy) return;
+    selectionEpoch.current++;
     clearError();
     const candidates = Array.from(fileList).map((f) => ({
       file: f,
-      relativePath: f.webkitRelativePath && f.webkitRelativePath.length > 0 ? f.webkitRelativePath : undefined,
+      relativePath:
+        f.webkitRelativePath && f.webkitRelativePath.length > 0
+          ? f.webkitRelativePath
+          : undefined,
     }));
     const { validFiles, error: valError } = validateAndPrepareFiles(candidates);
     if (valError) {
@@ -113,9 +130,12 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
     setDragging(false);
     if (busy) return;
     clearError();
+    const selection = ++selectionEpoch.current;
     try {
       const extracted = await extractDroppedFiles(e.dataTransfer);
-      const { validFiles, error: valError } = validateAndPrepareFiles(extracted);
+      if (selection !== selectionEpoch.current) return;
+      const { validFiles, error: valError } =
+        validateAndPrepareFiles(extracted);
       if (valError) {
         setLocalError(valError);
         setFiles([]);
@@ -124,8 +144,11 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
       setLocalError(null);
       setFiles(validFiles);
     } catch (cause) {
+      if (selection !== selectionEpoch.current) return;
       setLocalError(
-        cause instanceof Error ? cause.message : 'Error al procesar los archivos arrastrados.',
+        cause instanceof Error
+          ? cause.message
+          : "Error al procesar los archivos arrastrados.",
       );
       setFiles([]);
     }
@@ -139,15 +162,22 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
         await uploadDocument(single.file, vaultKey, single.logicalName);
       }
     } else {
-      await uploadDocumentsBatch(
+      const result = await uploadDocumentsBatch(
         files.map((f) => ({ file: f.file, logicalName: f.logicalName })),
         vaultKey,
       );
+      if (result.failedFiles.length) {
+        const failed = new Set(result.failedFiles);
+        setFiles((previous) =>
+          previous.filter((item) => failed.has(item.logicalName)),
+        );
+      }
     }
   };
 
   const handleClose = () => {
     if (busy) return;
+    selectionEpoch.current++;
     resetUploadStatus();
     clearError();
     setLocalError(null);
@@ -157,13 +187,15 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
 
   const totalBytes = files.reduce((acc, f) => acc + f.file.size, 0);
 
-  let statusLabel = 'Cifrando archivo…';
+  let statusLabel = "Cifrando archivo…";
   if (failed) {
-    statusLabel = 'Error al procesar el archivo';
+    statusLabel = batchUploadProgress
+      ? `${batchUploadProgress.uploaded} protegidos; ${batchUploadProgress.failed} fallidos`
+      : "Error al procesar el archivo";
   } else if (finished) {
     statusLabel = isBatch
       ? `${batchUploadProgress?.total ?? files.length} archivos cifrados y protegidos`
-      : 'Archivo cifrado y protegido';
+      : "Archivo cifrado y protegido";
   } else if (isBatch && batchUploadProgress) {
     statusLabel = `Cifrando archivo ${batchUploadProgress.current} de ${batchUploadProgress.total}…`;
   }
@@ -218,11 +250,11 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             onDrop={handleDrop}
             className={`flex flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed px-6 py-8 text-center transition ${
               dragging
-                ? 'border-sky-500 bg-sky-50 dark:border-[#38BDF8] dark:bg-[#38BDF8]/10'
+                ? "border-sky-500 bg-sky-50 dark:border-[#38BDF8] dark:bg-[#38BDF8]/10"
                 : files.length > 0
-                  ? 'border-sky-400/60 bg-slate-50 dark:border-[#38BDF8]/60 dark:bg-[#07090E]'
-                  : 'border-slate-200 bg-slate-50 hover:border-sky-400 hover:bg-slate-100/60 dark:border-[#1E293B] dark:bg-[#07090E] dark:hover:border-[#38BDF8]/50 dark:hover:bg-[#07090E]/80'
-            } ${busy ? 'pointer-events-none opacity-70' : ''}`}
+                  ? "border-sky-400/60 bg-slate-50 dark:border-[#38BDF8]/60 dark:bg-[#07090E]"
+                  : "border-slate-200 bg-slate-50 hover:border-sky-400 hover:bg-slate-100/60 dark:border-[#1E293B] dark:bg-[#07090E] dark:hover:border-[#38BDF8]/50 dark:hover:bg-[#07090E]/80"
+            } ${busy ? "pointer-events-none opacity-70" : ""}`}
           >
             {/* Inputs nativos ocultos */}
             <input
@@ -232,7 +264,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
               className="hidden"
               onChange={(e) => {
                 handleFilesSelected(e.target.files);
-                e.target.value = '';
+                e.target.value = "";
               }}
               disabled={busy}
             />
@@ -240,11 +272,14 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
               ref={folderInputRef}
               type="file"
               multiple
-              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+              {...({ webkitdirectory: "", directory: "" } as Record<
+                string,
+                string
+              >)}
               className="hidden"
               onChange={(e) => {
                 handleFilesSelected(e.target.files);
-                e.target.value = '';
+                e.target.value = "";
               }}
               disabled={busy}
             />
@@ -263,7 +298,8 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             ) : files.length > 1 ? (
               <>
                 <p className="max-w-full truncate text-sm font-semibold text-slate-900 dark:text-[#F8FAFC]">
-                  {files.length} archivos listos para cifrar (Tamaño total: {formatSize(totalBytes)})
+                  {files.length} archivos listos para cifrar (Tamaño total:{" "}
+                  {formatSize(totalBytes)})
                 </p>
                 <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                   Máx. 50 MB por archivo
@@ -275,7 +311,8 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                   Arrastra archivos o una carpeta completa aquí
                 </p>
                 <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
-                  El texto plano nunca abandona este dispositivo sin cifrar · Máx. 50 MB por archivo
+                  El texto plano nunca abandona este dispositivo sin cifrar ·
+                  Máx. 50 MB por archivo
                 </p>
               </>
             )}
@@ -316,7 +353,9 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
               className="flex items-start gap-2.5 rounded-lg border border-red-500/30 bg-red-50 px-3.5 py-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-200"
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
-              <span className="break-words">{localError || (failed ? vaultError : null)}</span>
+              <span className="break-words">
+                {localError || (failed ? vaultError : null)}
+              </span>
             </div>
           )}
 
@@ -325,22 +364,28 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             <div className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-[#1E293B] dark:bg-[#07090E]/90">
               <div className="flex items-center justify-between text-xs">
                 <span className="inline-flex items-center gap-2 font-medium text-sky-800 dark:text-[#BAE6FD]">
-                  {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0284C7] dark:text-[#38BDF8]" />}
-                  {finished && <ShieldCheck className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />}
+                  {busy && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0284C7] dark:text-[#38BDF8]" />
+                  )}
+                  {finished && (
+                    <ShieldCheck className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />
+                  )}
                   {statusLabel}
                 </span>
                 <span className="font-mono font-semibold text-[#0284C7] dark:text-[#38BDF8]">
-                  {finished ? '100%' : `${progressPct}%`}
+                  {finished ? "100%" : `${progressPct}%`}
                 </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-[#1E293B]">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ease-out ${
                     failed
-                      ? 'bg-red-500'
-                      : 'bg-gradient-to-r from-[#0284C7] via-[#38BDF8] to-[#BAE6FD] shadow-[0_0_12px_rgba(56,189,248,0.6)]'
+                      ? "bg-red-500"
+                      : "bg-gradient-to-r from-[#0284C7] via-[#38BDF8] to-[#BAE6FD] shadow-[0_0_12px_rgba(56,189,248,0.6)]"
                   }`}
-                  style={{ width: `${failed ? 100 : finished ? 100 : progressPct}%` }}
+                  style={{
+                    width: `${failed ? 100 : finished ? 100 : progressPct}%`,
+                  }}
                 />
               </div>
             </div>
@@ -381,7 +426,9 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                   ) : (
                     <>
                       <Cpu className="h-4 w-4 text-white dark:text-[#07090E]" />
-                      {files.length > 1 ? `Cifrar ${files.length} archivos` : 'Cifrar y subir'}
+                      {files.length > 1
+                        ? `Cifrar ${files.length} archivos`
+                        : "Cifrar y subir"}
                     </>
                   )}
                 </button>
@@ -391,7 +438,8 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
 
           {!vaultKey && (
             <p className="text-center text-xs text-amber-600 dark:text-amber-400">
-              La bóveda está bloqueada: debes iniciar sesión para subir documentos.
+              La bóveda está bloqueada: debes iniciar sesión para subir
+              documentos.
             </p>
           )}
         </div>

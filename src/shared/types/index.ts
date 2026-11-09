@@ -4,9 +4,7 @@
  * Tipos de dominio de la bóveda, derivados del contrato real de la base de
  * datos declarado en `./database.ts`.
  *
- * Los alias `Profile`, `Document`, `DocumentVersion` y `AuditLog` son
- * proyecciones directas de las filas de Postgres, de modo que cualquier
- * cambio en el esquema se propague automáticamente a toda la aplicación.
+ * Las filas persistidas se separan de las proyecciones descifradas en RAM.
  * ---------------------------------------------------------------------------
  */
 
@@ -24,16 +22,16 @@ export type {
   DocumentVersionInsert,
   AuditLogRow,
   AuditLogInsert,
-} from './database';
+} from "./database";
 
-export { VAULT_BUCKET } from './database';
+export { VAULT_BUCKET } from "./database";
 
 import type {
   AuditLogRow,
   DocumentRow,
   DocumentVersionRow,
   ProfileRow,
-} from './database';
+} from "./database";
 
 /** Perfil público del usuario (nunca contiene material criptográfico). */
 export type Profile = ProfileRow;
@@ -41,8 +39,11 @@ export type Profile = ProfileRow;
 /** Documento lógico de la bóveda; el contenido vive cifrado en Storage. */
 export type Document = DocumentRow;
 
-/** Versión inmutable de un documento: apunta a un blob cifrado concreto. */
-export type DocumentVersion = DocumentVersionRow;
+/** Versión con huella y tamaño descifrados, disponibles únicamente en RAM. */
+export type DocumentVersion = DocumentVersionRow & {
+  sha256_hash: string;
+  file_size: number;
+};
 
 /** Entrada de la bitácora de auditoría. */
 export type AuditLog = AuditLogRow;
@@ -51,13 +52,9 @@ export type AuditLog = AuditLogRow;
  * Acciones auditables registradas en `audit_logs.action`.
  *
  * La columna es `text` (no un ENUM de Postgres), por lo que esta unión actúa
- * como la única fuente de verdad en el cliente para evitar cadenas libres.
+ * como contrato de los eventos emitidos por el servidor.
  */
-export type AuditAction =
-  | 'UPLOAD'
-  | 'DOWNLOAD_DECRYPT'
-  | 'INTEGRITY_FAILURE'
-  | 'DELETE';
+export type AuditAction = "UPLOAD" | "DOWNLOAD_AUTHORIZED" | "DELETE";
 
 /**
  * Documento enriquecido con los datos de su última versión, tal y como lo
@@ -96,10 +93,10 @@ export interface VaultVersionDescriptor {
 
 /** Fases del pipeline de subida cifrada, para feedback granular en la UI. */
 export type UploadStatus =
-  | 'idle'
-  | 'reading'
-  | 'hashing'
-  | 'encrypting'
-  | 'uploading'
-  | 'done'
-  | 'error';
+  | "idle"
+  | "reading"
+  | "hashing"
+  | "encrypting"
+  | "uploading"
+  | "done"
+  | "error";

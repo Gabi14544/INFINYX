@@ -1,6 +1,6 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
-export type Theme = 'dark' | 'light';
+export type Theme = "dark" | "light";
 
 interface ThemeState {
   theme: Theme;
@@ -9,26 +9,26 @@ interface ThemeState {
   initTheme: () => void;
 }
 
-const STORAGE_KEY = 'infinyx-theme';
+const STORAGE_KEY = "infinyx-theme";
 
 const getInitialTheme = (): Theme => {
-  if (typeof window === 'undefined') return 'dark';
+  if (typeof window === "undefined") return "dark";
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'light' || saved === 'dark') return saved;
+    if (saved === "light" || saved === "dark") return saved;
   } catch {
     // Fallback silencioso si localStorage está bloqueado
   }
-  return 'dark';
+  return "dark";
 };
 
 const applyThemeToDOM = (theme: Theme) => {
-  if (typeof document === 'undefined') return;
+  if (typeof document === "undefined") return;
   const root = document.documentElement;
-  if (theme === 'dark') {
-    root.classList.add('dark');
+  if (theme === "dark") {
+    root.classList.add("dark");
   } else {
-    root.classList.remove('dark');
+    root.classList.remove("dark");
   }
 };
 
@@ -51,7 +51,7 @@ export const useThemeStore = create<ThemeState>()((set, get) => ({
   },
 
   toggleTheme: () => {
-    const nextTheme: Theme = get().theme === 'dark' ? 'light' : 'dark';
+    const nextTheme: Theme = get().theme === "dark" ? "light" : "dark";
     get().setTheme(nextTheme);
   },
 }));

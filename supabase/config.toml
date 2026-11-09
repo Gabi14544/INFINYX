@@ -1,0 +1,5 @@
+project_id = "infinyx"
+
+[functions.vault-access]
+# JWTs are verified against /auth/v1/user inside the handler, including current key formats.
+verify_jwt = false

@@ -1,9 +1,7 @@
-import { useEffect } from 'react';
-import AuthCard from './features/auth/components/AuthCard';
-import VaultDashboard from './features/vault/components/VaultDashboard';
-import { useAuthStore } from './features/auth/stores/useAuthStore';
-import { useDownloadAuthStore } from './features/vault/stores/useDownloadAuthStore';
-import { useVaultStore } from './features/vault/stores/useVaultStore';
+import { useEffect } from "react";
+import AuthCard from "./features/auth/components/AuthCard";
+import VaultDashboard from "./features/vault/components/VaultDashboard";
+import { useAuthStore } from "./features/auth/stores/useAuthStore";
 
 /** Tiempo máximo de inactividad antes de purgar la clave en memoria (10 minutos). */
 const INACTIVITY_TIMEOUT_MS = 10 * 60 * 1000;
@@ -35,27 +33,45 @@ export default function App() {
     if (!vaultKey) return;
 
     let timerId: ReturnType<typeof setTimeout>;
+    let lastActivity = Date.now();
 
     const handleTimeout = () => {
-      useDownloadAuthStore.getState().clearDownloadSessionPassword();
-      useVaultStore.getState().reset();
       useAuthStore.getState().lockVaultInMemory();
     };
 
+    const checkDeadline = () => {
+      if (Date.now() - lastActivity >= INACTIVITY_TIMEOUT_MS) {
+        handleTimeout();
+        return false;
+      }
+      return true;
+    };
     const resetTimer = () => {
+      if (!checkDeadline()) return;
+      lastActivity = Date.now();
       clearTimeout(timerId);
       timerId = setTimeout(handleTimeout, INACTIVITY_TIMEOUT_MS);
     };
 
     resetTimer();
+    window.addEventListener("focus", checkDeadline);
+    document.addEventListener("visibilitychange", checkDeadline);
 
-    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'] as const;
+    const events = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+      "scroll",
+    ] as const;
     for (const evt of events) {
       window.addEventListener(evt, resetTimer, { passive: true });
     }
 
     return () => {
       clearTimeout(timerId);
+      window.removeEventListener("focus", checkDeadline);
+      document.removeEventListener("visibilitychange", checkDeadline);
       for (const evt of events) {
         window.removeEventListener(evt, resetTimer);
       }

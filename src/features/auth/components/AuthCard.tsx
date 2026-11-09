@@ -1,34 +1,33 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ChangeEvent, ClipboardEvent, FormEvent } from 'react';
+import { useEffect, useRef, useState } from "react";
+import type { ChangeEvent, ClipboardEvent, FormEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   Check,
-  Copy,
+  KeyRound,
   Eye,
   EyeOff,
-  KeyRound,
   Loader2,
   Lock,
-  MailCheck,
   RefreshCw,
   ShieldCheck,
-} from 'lucide-react';
-import HexaMugenLogo from '../../../shared/components/HexaMugenLogo';
-import ThemeToggle from '../../../shared/components/ThemeToggle';
-import { useAuthStore } from '../stores/useAuthStore';
+} from "lucide-react";
+import HexaMugenLogo from "../../../shared/components/HexaMugenLogo";
+import ThemeToggle from "../../../shared/components/ThemeToggle";
+import { useAuthStore } from "../stores/useAuthStore";
 
-type Tab = 'login' | 'register';
+type Tab = "login" | "register";
 
 export default function AuthCard() {
-  const [tab, setTab] = useState<Tab>('login');
-  const [email, setEmail] = useState(() => useAuthStore.getState().user?.email ?? '');
-  const [password, setPassword] = useState('');
+  const [tab, setTab] = useState<Tab>("login");
+  const [email, setEmail] = useState(
+    () => useAuthStore.getState().user?.email ?? "",
+  );
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   // Estado local para el flujo OTP
-  const [otpCode, setOtpCode] = useState('');
+  const [otpCode, setOtpCode] = useState("");
   const [isResending, setIsResending] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
   const otpInputRef = useRef<HTMLInputElement>(null);
@@ -46,10 +45,6 @@ export default function AuthCard() {
     error,
     authSuccessMessage,
     clearAuthSuccessMessage,
-    recoveryPhrase,
-    pendingConfirmationEmail,
-    clearRecoveryPhrase,
-    clearPendingConfirmation,
     clearError,
   } = useAuthStore();
 
@@ -62,7 +57,7 @@ export default function AuthCard() {
   useEffect(() => {
     if (authSuccessMessage) {
       queueMicrotask(() => {
-        setTab('login');
+        setTab("login");
         const targetEmail = user?.email || otpEmail;
         if (targetEmail) {
           setEmail(targetEmail);
@@ -75,12 +70,12 @@ export default function AuthCard() {
     e.preventDefault();
     clearError();
     clearAuthSuccessMessage();
-    if (tab === 'login') {
+    if (tab === "login") {
       await signIn(email.trim(), password);
     } else {
-      setCopied(false);
       await signUp(email.trim(), password);
     }
+    setPassword("");
   };
 
   const handleVerifyOtp = async (e: FormEvent) => {
@@ -91,15 +86,15 @@ export default function AuthCard() {
   };
 
   const handleOtpChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/\D/g, '').slice(0, 8);
+    const val = e.target.value.replace(/\D/g, "").slice(0, 8);
     setOtpCode(val);
     if (error) clearError();
   };
 
   const handleOtpPaste = (e: ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text');
-    const val = pasted.replace(/\D/g, '').slice(0, 8);
+    const pasted = e.clipboardData.getData("text");
+    const val = pasted.replace(/\D/g, "").slice(0, 8);
     if (val) {
       setOtpCode(val);
       if (error) clearError();
@@ -121,27 +116,15 @@ export default function AuthCard() {
 
   const handleCancelOtp = () => {
     cancelOtpFlow();
-    setOtpCode('');
+    setOtpCode("");
     setResendSuccess(false);
     clearError();
     clearAuthSuccessMessage();
   };
 
-  const handleCopyPhrase = async () => {
-    if (!recoveryPhrase) return;
-    try {
-      await navigator.clipboard.writeText(recoveryPhrase);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Portapapeles no disponible: el usuario puede copiar manualmente.
-    }
-  };
-
   const switchTab = (next: Tab) => {
+    setPassword("");
     setTab(next);
-    setCopied(false);
-    clearPendingConfirmation();
     clearError();
     clearAuthSuccessMessage();
   };
@@ -181,8 +164,10 @@ export default function AuthCard() {
                   Verificación OTP de 6 dígitos
                 </h2>
                 <p className="mt-1 text-sm text-slate-500 dark:text-[#94A3B8]">
-                  Introduce el código temporal enviado a{' '}
-                  <strong className="text-[#0F172A] dark:text-[#F8FAFC]">{otpEmail}</strong>
+                  Introduce el código temporal enviado a{" "}
+                  <strong className="text-[#0F172A] dark:text-[#F8FAFC]">
+                    {otpEmail}
+                  </strong>
                 </p>
               </div>
 
@@ -203,7 +188,8 @@ export default function AuthCard() {
                 >
                   <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#0284C7] dark:text-[#38BDF8]" />
                   <span className="break-words">
-                    Se ha enviado un nuevo código de verificación a tu correo institucional.
+                    Se ha enviado un nuevo código de verificación a tu correo
+                    institucional.
                   </span>
                 </div>
               )}
@@ -296,8 +282,8 @@ export default function AuthCard() {
               >
                 {(
                   [
-                    { id: 'login', label: 'Iniciar Sesión' },
-                    { id: 'register', label: 'Crear Cuenta' },
+                    { id: "login", label: "Iniciar Sesión" },
+                    { id: "register", label: "Crear Cuenta" },
                   ] as { id: Tab; label: string }[]
                 ).map((t) => (
                   <button
@@ -308,8 +294,8 @@ export default function AuthCard() {
                     onClick={() => switchTab(t.id)}
                     className={`rounded-lg px-4 py-2.5 text-sm font-medium transition-all ${
                       tab === t.id
-                        ? 'bg-white text-sky-800 shadow ring-1 ring-sky-500/30 dark:bg-[#111827] dark:text-[#BAE6FD] dark:ring-[#38BDF8]/40'
-                        : 'text-slate-500 hover:text-slate-900 dark:text-[#94A3B8] dark:hover:text-[#F8FAFC]'
+                        ? "bg-white text-sky-800 shadow ring-1 ring-sky-500/30 dark:bg-[#111827] dark:text-[#BAE6FD] dark:ring-[#38BDF8]/40"
+                        : "text-slate-500 hover:text-slate-900 dark:text-[#94A3B8] dark:hover:text-[#F8FAFC]"
                     }`}
                   >
                     {t.label}
@@ -320,7 +306,9 @@ export default function AuthCard() {
               <form onSubmit={handleSubmit} className="space-y-4 p-6 sm:p-8">
                 <div>
                   <h2 className="text-xl font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
-                    {tab === 'login' ? 'Acceso a la bóveda' : 'Nueva bóveda cifrada'}
+                    {tab === "login"
+                      ? "Acceso a la bóveda"
+                      : "Nueva bóveda cifrada"}
                   </h2>
                 </div>
 
@@ -341,20 +329,6 @@ export default function AuthCard() {
                   >
                     <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#0284C7] dark:text-[#38BDF8]" />
                     <span className="break-words">{authSuccessMessage}</span>
-                  </div>
-                )}
-
-                {pendingConfirmationEmail && !error && !authSuccessMessage && (
-                  <div
-                    role="status"
-                    className="flex items-start gap-2.5 rounded-lg border border-sky-500/30 bg-sky-50 px-3.5 py-3 text-sm text-sky-800 dark:bg-[#0284C7]/15 dark:text-[#BAE6FD]"
-                  >
-                    <MailCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#0284C7] dark:text-[#38BDF8]" />
-                    <span className="break-words">
-                      Cuenta creada. Te hemos enviado un correo de confirmación a{' '}
-                      <strong className="text-slate-900 dark:text-white">{pendingConfirmationEmail}</strong>. Debes confirmarlo antes de entrar:
-                      revisa tu bandeja y luego inicia sesión.
-                    </span>
                   </div>
                 )}
 
@@ -388,11 +362,17 @@ export default function AuthCard() {
                   <div className="relative">
                     <input
                       id="auth-password"
-                      type={showPassword ? 'text' : 'password'}
+                      type={showPassword ? "text" : "password"}
                       required
-                      minLength={8}
-                      autoComplete={tab === 'login' ? 'current-password' : 'new-password'}
-                      placeholder="Mínimo 8 caracteres"
+                      minLength={tab === "register" ? 15 : 1}
+                      autoComplete={
+                        tab === "login" ? "current-password" : "new-password"
+                      }
+                      placeholder={
+                        tab === "register"
+                          ? "Al menos 15 caracteres"
+                          : "Tu contraseña maestra"
+                      }
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       disabled={isLoading}
@@ -402,7 +382,11 @@ export default function AuthCard() {
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
                       disabled={isLoading}
-                      aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                      aria-label={
+                        showPassword
+                          ? "Ocultar contraseña"
+                          : "Mostrar contraseña"
+                      }
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50 dark:text-[#94A3B8] dark:hover:bg-[#111827] dark:hover:text-[#BAE6FD]"
                     >
                       {showPassword ? (
@@ -422,16 +406,18 @@ export default function AuthCard() {
                   {isLoading ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin text-white dark:text-[#07090E]" />
-                      {tab === 'login' ? 'Verificando…' : 'Generando bóveda…'}
+                      {tab === "login" ? "Verificando…" : "Generando bóveda…"}
                     </>
                   ) : (
                     <>
-                      {tab === 'login' ? (
+                      {tab === "login" ? (
                         <Lock className="h-4 w-4 text-white dark:text-[#07090E]" />
                       ) : (
                         <KeyRound className="h-4 w-4 text-white dark:text-[#07090E]" />
                       )}
-                      {tab === 'login' ? 'Desbloquear bóveda' : 'Crear bóveda segura'}
+                      {tab === "login"
+                        ? "Desbloquear bóveda"
+                        : "Crear bóveda segura"}
                     </>
                   )}
                 </button>
@@ -446,74 +432,10 @@ export default function AuthCard() {
         </div>
       </div>
 
-      {/* Modal de Frase de Recuperación: material sensible de un solo uso en RAM */}
-      {recoveryPhrase && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Frase de recuperación"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs dark:bg-black/80"
-        >
-          <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl transition-colors sm:p-8 dark:border-[#38BDF8]/30 dark:bg-[#0D111A]">
-            <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-sky-200 bg-sky-50 text-[#0284C7] dark:border-[#38BDF8]/30 dark:bg-[#38BDF8]/10 dark:text-[#38BDF8]">
-                <KeyRound className="h-5 w-5" />
-              </span>
-              <div>
-                <h3 className="text-xl font-semibold text-[#0F172A] dark:text-[#F8FAFC]">
-                  Tu frase de recuperación
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
-                  Generada en cliente · Custodia Zero-Knowledge
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-amber-500/30 bg-amber-50 px-3.5 py-3 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500 dark:text-amber-400" />
-              <p>
-                <strong>Guarda esta clave con extrema seguridad.</strong> El servidor no tiene copia
-                ni puede recuperarla. Sin estas 12 palabras no podrás restaurar el acceso a tus
-                documentos cifrados.
-              </p>
-            </div>
-
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-[#1E293B] dark:bg-[#07090E]">
-              <p className="font-mono text-sm leading-7 text-sky-800 dark:text-[#BAE6FD]">
-                {recoveryPhrase}
-              </p>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
-              <button
-                type="button"
-                onClick={handleCopyPhrase}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-sky-500/40 hover:bg-slate-200 hover:text-sky-700 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#F8FAFC] dark:hover:border-[#38BDF8]/40 dark:hover:bg-[#1E293B] dark:hover:text-[#BAE6FD]"
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />
-                    <span className="text-[#0284C7] dark:text-[#38BDF8]">Copiada al portapapeles</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-4 w-4" />
-                    Copiar frase
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={clearRecoveryPhrase}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 dark:text-[#07090E]"
-              >
-                <ShieldCheck className="h-4 w-4 text-white dark:text-[#07090E]" />
-                Ya la guardé, entrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <p className="fixed bottom-2 left-4 right-4 text-center text-xs text-slate-500">
+        Sin tu contraseña no se pueden recuperar los documentos. Usa una
+        contraseña larga y única y consérvala en un gestor.
+      </p>
     </div>
   );
 }

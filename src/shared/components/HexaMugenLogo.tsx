@@ -8,7 +8,9 @@ interface HexaMugenLogoProps {
  * y núcleo central flotante en paleta Azul "Seis Ojos" (#BAE6FD, #38BDF8, #0284C7).
  * Adaptado con soporte para Modo Claro (Blanco Titanio) y Modo Oscuro (Obsidiana Abisal).
  */
-export default function HexaMugenLogo({ className = 'h-9 w-9' }: HexaMugenLogoProps) {
+export default function HexaMugenLogo({
+  className = "h-9 w-9",
+}: HexaMugenLogoProps) {
   return (
     <svg
       viewBox="0 0 64 40"
@@ -18,12 +20,26 @@ export default function HexaMugenLogo({ className = 'h-9 w-9' }: HexaMugenLogoPr
       aria-hidden="true"
     >
       <defs>
-        <linearGradient id="infin-titanium-outer" x1="0" y1="0" x2="64" y2="40" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id="infin-titanium-outer"
+          x1="0"
+          y1="0"
+          x2="64"
+          y2="40"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop offset="0%" stopColor="#E2E8F0" />
           <stop offset="50%" stopColor="#64748B" />
           <stop offset="100%" stopColor="#94A3B8" />
         </linearGradient>
-        <linearGradient id="infin-six-eyes-stroke" x1="8" y1="6" x2="56" y2="34" gradientUnits="userSpaceOnUse">
+        <linearGradient
+          id="infin-six-eyes-stroke"
+          x1="8"
+          y1="6"
+          x2="56"
+          y2="34"
+          gradientUnits="userSpaceOnUse"
+        >
           <stop offset="0%" stopColor="#0284C7" />
           <stop offset="50%" stopColor="#BAE6FD" />
           <stop offset="100%" stopColor="#38BDF8" />

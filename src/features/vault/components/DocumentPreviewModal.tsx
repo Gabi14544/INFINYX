@@ -15,11 +15,11 @@
  * ---------------------------------------------------------------------------
  */
 
-import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Check, Copy, Eye, X } from 'lucide-react';
-import type { VaultDocument } from '../../../shared/types';
-import { formatDateTime, formatSize } from '../utils/formatters';
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { Check, Copy, Eye, X } from "lucide-react";
+import type { VaultDocument } from "../../../shared/types";
+import { formatDateTime, formatSize } from "../utils/formatters";
 
 interface DocumentPreviewModalProps {
   doc: VaultDocument | null;
@@ -43,18 +43,18 @@ export default function DocumentPreviewModal({
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === "Escape") {
         onClose();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onClose]);
 
   if (!open || !doc) return null;
 
   const version = doc.latestVersion;
-  const hash = version?.sha256_hash ?? '';
+  const hash = version?.sha256_hash ?? "";
 
   const handleCopyHash = async () => {
     if (!hash) return;
@@ -86,7 +86,10 @@ export default function DocumentPreviewModal({
               <Eye className="h-5 w-5" />
             </span>
             <div>
-              <h3 id="preview-modal-title" className="text-lg font-semibold text-slate-900 dark:text-[#F8FAFC]">
+              <h3
+                id="preview-modal-title"
+                className="text-lg font-semibold text-slate-900 dark:text-[#F8FAFC]"
+              >
                 Vista previa en custodia
               </h3>
               <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
@@ -111,7 +114,10 @@ export default function DocumentPreviewModal({
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-[#94A3B8]">
               Nombre del archivo
             </span>
-            <p className="mt-1 break-all text-base font-semibold text-slate-900 dark:text-[#F8FAFC]" title={doc.name}>
+            <p
+              className="mt-1 break-all text-base font-semibold text-slate-900 dark:text-[#F8FAFC]"
+              title={doc.name}
+            >
               {doc.name}
             </p>
           </div>
@@ -119,30 +125,40 @@ export default function DocumentPreviewModal({
           {/* Cuadrícula de metadatos clave */}
           <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 dark:border-[#1E293B] dark:bg-[#07090E]">
             <div>
-              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">Versión</span>
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">
+                Versión
+              </span>
               <p className="mt-0.5 font-mono text-sm font-semibold text-sky-700 dark:text-[#BAE6FD]">
-                v{version?.version_number ?? '—'}
+                v{version?.version_number ?? "—"}
               </p>
             </div>
             <div>
-              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">Tamaño</span>
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">
+                Tamaño
+              </span>
               <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-[#F8FAFC]">
-                {version ? formatSize(version.file_size) : '—'}
+                {version ? formatSize(version.file_size) : "—"}
               </p>
             </div>
             <div>
-              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">Tipo MIME</span>
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">
+                Tipo MIME
+              </span>
               <p
                 className="mt-0.5 truncate font-mono text-sm text-slate-500 dark:text-[#94A3B8]"
-                title={doc.mimeType ?? 'desconocido'}
+                title={doc.mimeType ?? "desconocido"}
               >
-                {doc.mimeType ?? 'desconocido'}
+                {doc.mimeType ?? "desconocido"}
               </p>
             </div>
             <div>
-              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">Fecha de custodia</span>
+              <span className="text-xs text-slate-500 dark:text-[#94A3B8]">
+                Fecha de custodia
+              </span>
               <p className="mt-0.5 text-sm text-slate-500 dark:text-[#94A3B8]">
-                {version ? formatDateTime(version.created_at) : formatDateTime(doc.createdAt)}
+                {version
+                  ? formatDateTime(version.created_at)
+                  : formatDateTime(doc.createdAt)}
               </p>
             </div>
           </div>
@@ -162,7 +178,9 @@ export default function DocumentPreviewModal({
                   {copied ? (
                     <>
                       <Check className="h-3.5 w-3.5 text-[#0284C7] dark:text-[#38BDF8]" />
-                      <span className="text-[#0284C7] dark:text-[#38BDF8]">Copiada</span>
+                      <span className="text-[#0284C7] dark:text-[#38BDF8]">
+                        Copiada
+                      </span>
                     </>
                   ) : (
                     <>
@@ -174,7 +192,7 @@ export default function DocumentPreviewModal({
               ) : null}
             </div>
             <p className="mt-2 break-all font-mono text-xs leading-relaxed text-sky-800 dark:text-[#BAE6FD]">
-              {hash || 'Sin versión disponible'}
+              {hash || "Sin versión disponible"}
             </p>
           </div>
         </div>
@@ -193,7 +211,7 @@ export default function DocumentPreviewModal({
     </div>
   );
 
-  return typeof document !== 'undefined'
+  return typeof document !== "undefined"
     ? createPortal(modalContent, document.body)
     : modalContent;
 }

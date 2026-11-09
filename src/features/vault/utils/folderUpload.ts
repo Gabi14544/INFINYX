@@ -1,184 +1,182 @@
-import { MAX_VAULT_FILE_SIZE_BYTES } from '../../../core/crypto/vaultCrypto';
-import { formatSize } from './formatters';
-
-/** Archivo listo para subirse a la bóveda con su nombre lógico (incluyendo carpeta si aplica). */
+import { MAX_VAULT_FILE_SIZE_BYTES } from "../../../core/crypto/vaultCrypto";
+import { formatSize } from "./formatters";
+export const MAX_BATCH_FILES = 500;
+const MAX_DEPTH = 32;
+const MAX_ENTRIES = 10_000;
 export interface PreparedVaultFile {
   file: File;
   logicalName: string;
 }
-
-const IGNORED_SYSTEM_FILES = new Set([
-  '.ds_store',
-  'thumbs.db',
-  'desktop.ini',
-  '.spotlight-v100',
-  '.trashes',
+const IGNORED = new Set([
+  ".ds_store",
+  "thumbs.db",
+  "desktop.ini",
+  ".spotlight-v100",
+  ".trashes",
+  "__macosx",
 ]);
-
-/**
- * Determina si un archivo pertenece a metadatos ocultos del sistema operativo
- * que deben omitirse al subir una carpeta completa.
- */
-export function isIgnoredSystemFile(fileName: string): boolean {
-  const trimmed = fileName.trim();
-  if (trimmed.length === 0) return true;
-  const segments = trimmed.split(/[/\\]/);
-  const base = (segments[segments.length - 1] ?? '').toLowerCase();
-  if (base.length === 0) return true;
-  if (IGNORED_SYSTEM_FILES.has(base)) return true;
-  if (base.startsWith('._')) return true;
-  return false;
+export function isIgnoredSystemFile(name: string): boolean {
+  const segments = name.trim().split(/[/\\]/);
+  return (
+    !name.trim() ||
+    segments.some(
+      (part) => IGNORED.has(part.toLowerCase()) || part.startsWith("._"),
+    )
+  );
 }
-
-/**
- * Normaliza la ruta lógica de un archivo: si viene de una carpeta (`webkitRelativePath`
- * o ruta relativa del lector de directorios), conserva `Carpeta/Subcarpeta/archivo.ext`
- * usando barras `/` limpias.
- */
+/** This is an encrypted display name, never a Storage path or a filesystem path. */
 export function resolveLogicalDocumentName(
   file: File,
   customRelativePath?: string,
 ): string {
-  const rawPath =
-    customRelativePath && customRelativePath.trim().length > 0
-      ? customRelativePath.trim()
-      : typeof file.webkitRelativePath === 'string' && file.webkitRelativePath.trim().length > 0
-        ? file.webkitRelativePath.trim()
-        : file.name.trim();
-
-  return rawPath
-    .replace(/\\/g, '/')
-    .replace(/^\/+|\/+$/g, '')
-    .replace(/\/{2,}/g, '/');
+  const raw =
+    customRelativePath?.trim() ||
+    file.webkitRelativePath?.trim() ||
+    file.name.trim();
+  const name = raw
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/\/{2,}/g, "/")
+    .normalize("NFC");
+  const parts = name.split("/");
+  if (
+    !name ||
+    name.length > 1024 ||
+    Array.from(name).some(
+      (char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127,
+    ) ||
+    parts.some((p) => p === "." || p === ".." || !p.trim()) ||
+    parts.length > MAX_DEPTH
+  ) {
+    throw new Error("Ruta lógica inválida o demasiado profunda.");
+  }
+  return name;
 }
-
-/**
- * Separa un nombre lógico (`Carpeta/Subcarpeta/archivo.pdf`) en `{ folderPath, baseName }`
- * para mostrar la carpeta como insignia visual en la tabla del Dashboard.
- */
-export function splitFolderAndFileName(logicalName: string): {
+export function splitFolderAndFileName(name: string): {
   folderPath: string | null;
   baseName: string;
 } {
-  const normalized = logicalName.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const lastSlash = normalized.lastIndexOf('/');
-  if (lastSlash === -1) {
-    return { folderPath: null, baseName: normalized };
-  }
-  const folderPath = normalized.slice(0, lastSlash);
-  const baseName = normalized.slice(lastSlash + 1);
-  return {
-    folderPath: folderPath.length > 0 ? folderPath : null,
-    baseName: baseName.length > 0 ? baseName : normalized,
-  };
+  const normalized = name.replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const index = normalized.lastIndexOf("/");
+  return index < 0
+    ? { folderPath: null, baseName: normalized }
+    : {
+        folderPath: normalized.slice(0, index) || null,
+        baseName: normalized.slice(index + 1) || normalized,
+      };
 }
-
-/**
- * Valida y prepara una lista de archivos (individuales o provenientes de una carpeta),
- * descartando archivos ocultos del SO y verificando que ninguno esté vacío ni supere los 50 MB.
- */
 export function validateAndPrepareFiles(
   candidates: Array<{ file: File; relativePath?: string }>,
 ): { validFiles: PreparedVaultFile[]; error: string | null } {
-  const filtered = candidates.filter(({ file, relativePath }) => {
-    const nameToCheck = relativePath ?? (file.webkitRelativePath || file.name);
-    return !isIgnoredSystemFile(nameToCheck);
-  });
-
-  if (filtered.length === 0) {
+  const filtered = candidates.filter(
+    ({ file, relativePath }) =>
+      !isIgnoredSystemFile(
+        relativePath || file.webkitRelativePath || file.name,
+      ),
+  );
+  if (!filtered.length)
     return {
       validFiles: [],
-      error: 'No se encontraron archivos válidos para cifrar.',
+      error: "No se encontraron archivos válidos para cifrar.",
     };
-  }
-
+  if (filtered.length > MAX_BATCH_FILES)
+    return {
+      validFiles: [],
+      error: `Selecciona como máximo ${MAX_BATCH_FILES} archivos por lote.`,
+    };
   const prepared: PreparedVaultFile[] = [];
-
-  for (const item of filtered) {
-    const logicalName = resolveLogicalDocumentName(item.file, item.relativePath);
-    if (item.file.size === 0) {
+  const names = new Set<string>();
+  for (const { file, relativePath } of filtered) {
+    let logicalName: string;
+    try {
+      logicalName = resolveLogicalDocumentName(file, relativePath);
+    } catch (error) {
+      return {
+        validFiles: [],
+        error: error instanceof Error ? error.message : "Ruta inválida.",
+      };
+    }
+    if (!file.size)
       return {
         validFiles: [],
         error: `El archivo "${logicalName}" está vacío (0 bytes) y no puede procesarse.`,
       };
-    }
-    if (item.file.size > MAX_VAULT_FILE_SIZE_BYTES) {
+    if (file.size > MAX_VAULT_FILE_SIZE_BYTES)
       return {
         validFiles: [],
-        error: `El archivo "${logicalName}" (${formatSize(item.file.size)}) supera el límite máximo de ${formatSize(MAX_VAULT_FILE_SIZE_BYTES)} permitido por archivo.`,
+        error: `El archivo "${logicalName}" (${formatSize(file.size)}) supera el límite máximo de ${formatSize(MAX_VAULT_FILE_SIZE_BYTES)} permitido por archivo.`,
       };
-    }
-    prepared.push({ file: item.file, logicalName });
+    if (names.has(logicalName))
+      return {
+        validFiles: [],
+        error: `El lote contiene la ruta duplicada "${logicalName}".`,
+      };
+    names.add(logicalName);
+    prepared.push({ file, logicalName });
   }
-
   return { validFiles: prepared, error: null };
 }
-
-/**
- * Extrae recursivamente todos los archivos de un evento Drag & Drop,
- * soportando tanto archivos sueltos como carpetas completas con subcarpetas.
- */
 export async function extractDroppedFiles(
   dataTransfer: DataTransfer,
 ): Promise<Array<{ file: File; relativePath?: string }>> {
-  const items = dataTransfer.items;
-  if (!items || items.length === 0) {
-    return Array.from(dataTransfer.files).map((file) => ({ file }));
-  }
-
+  // Capture entries synchronously: DataTransfer becomes protected after the drop handler yields.
   const entries: FileSystemEntry[] = [];
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i];
-    if (item && typeof item.webkitGetAsEntry === 'function') {
-      const entry = item.webkitGetAsEntry();
-      if (entry) {
-        entries.push(entry);
-      }
+  const fallback: File[] = [];
+  for (const item of Array.from(dataTransfer.items ?? [])) {
+    const entry =
+      typeof item.webkitGetAsEntry === "function"
+        ? item.webkitGetAsEntry()
+        : null;
+    if (entry) entries.push(entry);
+    else {
+      const file = item.getAsFile?.();
+      if (file) fallback.push(file);
     }
   }
-
-  if (entries.length === 0) {
-    return Array.from(dataTransfer.files).map((file) => ({ file }));
+  if (!entries.length) {
+    const files = fallback.length ? fallback : Array.from(dataTransfer.files);
+    if (files.length > MAX_BATCH_FILES)
+      throw new Error(
+        `Selecciona como máximo ${MAX_BATCH_FILES} archivos por lote.`,
+      );
+    return files.map((file) => ({ file }));
   }
-
   const results: Array<{ file: File; relativePath?: string }> = [];
-
-  const readEntry = async (entry: FileSystemEntry, parentPath: string): Promise<void> => {
-    const currentPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+  let visited = 0;
+  const add = (file: File, relativePath?: string) => {
+    if (isIgnoredSystemFile(relativePath || file.name)) return;
+    if (results.length >= MAX_BATCH_FILES)
+      throw new Error(
+        `Selecciona como máximo ${MAX_BATCH_FILES} archivos por lote.`,
+      );
+    results.push({ file, relativePath });
+  };
+  const readEntry = async (
+    entry: FileSystemEntry,
+    parent: string,
+    depth: number,
+  ): Promise<void> => {
+    if (++visited > MAX_ENTRIES || depth > MAX_DEPTH)
+      throw new Error("La carpeta tiene demasiadas entradas o niveles.");
+    const path = parent ? `${parent}/${entry.name}` : entry.name;
+    if (isIgnoredSystemFile(path)) return;
     if (entry.isFile) {
-      const fileEntry = entry as FileSystemFileEntry;
-      const file = await new Promise<File>((resolve, reject) => {
-        fileEntry.file(resolve, reject);
-      });
-      results.push({ file, relativePath: parentPath ? currentPath : undefined });
-      return;
-    }
-
-    if (entry.isDirectory) {
-      const dirEntry = entry as FileSystemDirectoryEntry;
-      const reader = dirEntry.createReader();
-      const childEntries: FileSystemEntry[] = [];
-
-      const readBatch = async (): Promise<void> => {
-        const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
-          reader.readEntries(resolve, reject);
-        });
-        if (batch.length > 0) {
-          childEntries.push(...batch);
-          await readBatch();
-        }
-      };
-
-      await readBatch();
-      for (const child of childEntries) {
-        await readEntry(child, currentPath);
+      const file = await new Promise<File>((resolve, reject) =>
+        (entry as FileSystemFileEntry).file(resolve, reject),
+      );
+      add(file, parent ? path : undefined);
+    } else if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      while (true) {
+        const children = await new Promise<FileSystemEntry[]>(
+          (resolve, reject) => reader.readEntries(resolve, reject),
+        );
+        if (!children.length) break;
+        for (const child of children) await readEntry(child, path, depth + 1);
       }
     }
   };
-
-  for (const entry of entries) {
-    await readEntry(entry, '');
-  }
-
+  for (const file of fallback) add(file);
+  for (const entry of entries) await readEntry(entry, "", 1);
   return results;
 }
