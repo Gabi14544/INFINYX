@@ -1,5 +1,5 @@
 -- =============================================================================
--- Tech-Value Vault: Endurecimiento de Seguridad y Políticas RLS
+-- INFINYX: Endurecimiento de Seguridad y Políticas RLS
 -- =============================================================================
 
 -- 1. Asegurar columnas de verificador de descarga en profiles

@@ -3,54 +3,87 @@
  * ---------------------------------------------------------------------------
  * Fila del catálogo institucional INFINYX (Soporte Dual: Modo Claro / Oscuro):
  *
- *   1) "Descargar archivo": botón estilizado con flujo gateado
+ *   1) Checkbox de selección para eliminación masiva / en lote.
+ *   2) Insignia visual de carpeta (`📁 Ruta/Carpeta`) cuando el documento
+ *      fue subido con una ruta lógica.
+ *   3) "Descargar archivo": botón estilizado con flujo gateado
  *      por la contraseña de descarga en RAM (vía `onDownload` del dashboard).
- *   2) "Visualizar": botón secundario que abre modal centrado
- *      (`DocumentPreviewModal`) fuera de la tabla (portal a body), mostrando
- *      metadatos, tipo de archivo y copiado de huella SHA-256.
- *   3) "Eliminar": botón con hover destructivo refinado que abre
- *      `DeleteDocumentModal` (portal a body) para confirmación y autorización en RAM.
+ *   4) "Visualizar": modal centrado (`DocumentPreviewModal`) con metadatos.
+ *   5) "Eliminar": confirmación destructiva individual (`DeleteDocumentModal`).
  * ---------------------------------------------------------------------------
  */
 
 import { useState } from 'react';
-import { Download, Eye, FileText, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
+import { Download, Eye, FileText, Folder, Loader2, ShieldCheck, Trash2 } from 'lucide-react';
 import type { VaultDocument } from '../../../shared/types';
 import DeleteDocumentModal from './DeleteDocumentModal';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import { formatDate, formatSize, shortHash } from '../utils/formatters';
+import { splitFolderAndFileName } from '../utils/folderUpload';
 
 interface DocumentRowProps {
   doc: VaultDocument;
   downloading: string | null;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
   onDownload: (doc: VaultDocument) => void;
 }
 
-export default function DocumentRow({ doc, downloading, onDownload }: DocumentRowProps) {
+export default function DocumentRow({
+  doc,
+  downloading,
+  selected,
+  onToggleSelect,
+  onDownload,
+}: DocumentRowProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const version = doc.latestVersion;
   const isBusy = downloading === doc.id;
 
+  const { folderPath, baseName } = splitFolderAndFileName(doc.name);
+
   return (
     <>
       <tr className="border-t border-slate-200 transition hover:bg-slate-50/80 dark:border-[#1E293B]/70 dark:hover:bg-[#111827]/70">
+        {/* Checkbox de selección */}
+        <td className="w-10 px-4 py-4 text-center">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(doc.id)}
+            aria-label={`Seleccionar documento ${doc.name}`}
+            className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-[#38BDF8] focus:ring-2 focus:ring-[#38BDF8]/20 dark:border-[#1E293B]"
+          />
+        </td>
+
         {/* Columna Nombre del archivo */}
         <td className="px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-[#0284C7] dark:border-[#38BDF8]/25 dark:bg-[#38BDF8]/10 dark:text-[#38BDF8]">
               <FileText className="h-4 w-4" />
             </span>
-            <div className="flex min-w-0 items-center gap-1.5">
-              <span
-                className="max-w-[220px] truncate text-sm font-medium text-[#0F172A] sm:max-w-xs md:max-w-sm dark:text-[#F8FAFC]"
-                title={doc.name}
-              >
-                {doc.name}
-              </span>
-              <span title="Cifrado AES-GCM-256 verificado" className="inline-flex shrink-0">
-                <ShieldCheck className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />
-              </span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              {folderPath && (
+                <span
+                  title={`Carpeta: ${folderPath}`}
+                  className="inline-flex w-fit items-center gap-1 rounded border border-[#38BDF8]/25 bg-[#38BDF8]/10 px-1.5 py-0.5 text-[11px] font-medium text-[#BAE6FD]"
+                >
+                  <Folder className="h-3 w-3 shrink-0 text-[#0284C7] dark:text-[#38BDF8]" />
+                  <span className="max-w-[200px] truncate">{folderPath}</span>
+                </span>
+              )}
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="max-w-[220px] truncate text-sm font-medium text-[#0F172A] sm:max-w-xs md:max-w-sm dark:text-[#F8FAFC]"
+                  title={doc.name}
+                >
+                  {baseName}
+                </span>
+                <span title="Cifrado AES-GCM-256 verificado" className="inline-flex shrink-0">
+                  <ShieldCheck className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />
+                </span>
+              </div>
             </div>
           </div>
         </td>
