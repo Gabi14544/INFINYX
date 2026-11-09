@@ -209,12 +209,19 @@ export function toVersionDescriptor(doc: VaultDocument): VaultVersionDescriptor 
 // Contrato del store
 // ---------------------------------------------------------------------------
 
+export interface BatchUploadProgress {
+  current: number;
+  total: number;
+  currentFileName: string;
+}
+
 export interface VaultState {
   /** Documentos del usuario, con los datos de su última versión resueltos. */
   documents: VaultDocument[];
   isLoading: boolean;
   /** Fase actual del pipeline de subida cifrada. */
   uploadStatus: UploadStatus;
+  batchUploadProgress: BatchUploadProgress | null;
   error: string | null;
 }
 
@@ -230,7 +237,19 @@ export interface VaultActions {
    * falla con "Se ha alcanzado el límite máximo de 3 versiones…".
    * @returns El `id` del documento creado o versionado, o `null` si falló.
    */
-  uploadDocument: (file: File, vaultKey: CryptoKey) => Promise<string | null>;
+  uploadDocument: (
+    file: File,
+    vaultKey: CryptoKey,
+    logicalNameOverride?: string,
+  ) => Promise<string | null>;
+  /**
+   * Subida secuencial de un conjunto de archivos o carpeta completa,
+   * actualizando `batchUploadProgress` archivo por archivo.
+   */
+  uploadDocumentsBatch: (
+    items: Array<{ file: File; logicalName?: string }>,
+    vaultKey: CryptoKey,
+  ) => Promise<{ uploadedIds: string[]; failedFiles: string[] }>;
   /**
    * Pipeline inverso: descargar -> descifrar -> validar integridad ->
    * auditar -> entregar al disco del usuario.
@@ -250,6 +269,16 @@ export interface VaultActions {
    * @returns `true` si el documento fue eliminado con éxito.
    */
   deleteDocument: (documentId: string) => Promise<boolean>;
+  /**
+   * Eliminación segura en lote de múltiples documentos y sus versiones asociadas:
+   * a) Valida la contraseña de descarga en RAM.
+   * b) Obtiene todas las versiones de los documentIds.
+   * c) Elimina los blobs de Storage en lote.
+   * d) Elimina los registros de la tabla "documents" en lote.
+   * e) Registra la auditoría en lote.
+   * f) Actualiza el estado local de documentos en el store.
+   */
+  deleteDocumentsBatch: (documentIds: string[]) => Promise<boolean>;
   /** Devuelve `uploadStatus` a `idle`. */
   resetUploadStatus: () => void;
   /** Limpia el último error registrado. */
@@ -264,6 +293,7 @@ const INITIAL_STATE: VaultState = {
   documents: [],
   isLoading: false,
   uploadStatus: 'idle',
+  batchUploadProgress: null,
   error: null,
 };
 
@@ -350,7 +380,7 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
     }
   },
 
-  uploadDocument: async (file, vaultKey) => {
+  uploadDocument: async (file, vaultKey, logicalNameOverride) => {
     set({ isLoading: true, uploadStatus: 'reading', error: null });
 
     // Se declara fuera del `try` para poder compensar la subida si el
@@ -358,6 +388,8 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
     let uploadedPath: string | null = null;
 
     try {
+      const effectiveName = (logicalNameOverride?.trim() || file.name).trim();
+
       if (file.size === 0) {
         throw new Error('El archivo está vacío (0 bytes) y no puede procesarse.');
       }
@@ -374,7 +406,7 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
         .from('documents')
         .select('id, name')
         .eq('user_id', user.id)
-        .eq('name', file.name)
+        .eq('name', effectiveName)
         .limit(1);
 
       if (lookupError) {
@@ -455,7 +487,7 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
         const { error: documentError } = await supabase.from('documents').insert({
           id: targetDocumentId,
           user_id: user.id,
-          name: file.name,
+          name: effectiveName,
           mime_type: mimeType,
         });
 
@@ -499,7 +531,7 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
 
       // 6) Auditoría (no bloqueante).
       await writeAuditLog(user.id, targetDocumentId, 'UPLOAD', {
-        file_name: file.name,
+        file_name: effectiveName,
         mime_type: mimeType,
         version_number: nextVersionNumber,
         storage_path: storagePath,
@@ -527,6 +559,176 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
 
       return null;
     }
+  },
+
+  uploadDocumentsBatch: async (items, vaultKey) => {
+    set({ isLoading: true, error: null });
+    const uploadedIds: string[] = [];
+    const failedFiles: string[] = [];
+
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (!item) continue;
+      const logicalName = (item.logicalName?.trim() || item.file.name).trim();
+
+      set({
+        batchUploadProgress: {
+          current: i + 1,
+          total: items.length,
+          currentFileName: logicalName,
+        },
+      });
+
+      let uploadedPath: string | null = null;
+      try {
+        if (item.file.size === 0) {
+          throw new Error(`El archivo "${logicalName}" está vacío (0 bytes).`);
+        }
+        if (item.file.size > MAX_VAULT_FILE_SIZE_BYTES) {
+          throw new Error(`El archivo "${logicalName}" supera el límite máximo de 50 MB.`);
+        }
+
+        const user = await requireUser();
+
+        // 0) Resolución del documento lógico por nombre
+        const { data: existingDocs, error: lookupError } = await supabase
+          .from('documents')
+          .select('id, name')
+          .eq('user_id', user.id)
+          .eq('name', logicalName)
+          .limit(1);
+
+        if (lookupError) throw lookupError;
+
+        const existingDocumentId = existingDocs?.[0]?.id ?? null;
+        let targetDocumentId: string;
+        let nextVersionNumber: number;
+        let isNewDocument = false;
+
+        if (existingDocumentId) {
+          const { data: existingVersions, error: versionsLookupError } = await supabase
+            .from('document_versions')
+            .select('version_number')
+            .eq('document_id', existingDocumentId)
+            .order('created_at', { ascending: true })
+            .order('version_number', { ascending: true });
+
+          if (versionsLookupError) throw versionsLookupError;
+
+          const versionCount = existingVersions?.length ?? 0;
+          if (versionCount >= MAX_VERSIONS) {
+            throw new Error(`Límite máximo de 3 versiones alcanzado para "${logicalName}".`);
+          }
+
+          targetDocumentId = existingDocumentId;
+          nextVersionNumber = versionCount + 1;
+        } else {
+          targetDocumentId = window.crypto.randomUUID();
+          nextVersionNumber = FIRST_VERSION;
+          isNewDocument = true;
+        }
+
+        // 1) Lectura
+        set({ uploadStatus: 'reading' });
+        const plainBuffer = await item.file.arrayBuffer();
+
+        // 2) Hashing
+        set({ uploadStatus: 'hashing' });
+        const sha256Hash = await computeSHA256(plainBuffer);
+
+        // 3) Cifrado
+        set({ uploadStatus: 'encrypting' });
+        const { cipherBuffer, iv } = await encryptBuffer(plainBuffer, vaultKey, {
+          userId: user.id,
+          documentId: targetDocumentId,
+          versionNumber: nextVersionNumber,
+        });
+
+        // 4) Subida a storage
+        set({ uploadStatus: 'uploading' });
+        const storagePath = `${user.id}/${targetDocumentId}/v${nextVersionNumber}.enc`;
+        const mimeType = item.file.type.length > 0 ? item.file.type : CIPHERTEXT_MIME;
+
+        const { error: storageError } = await supabase.storage
+          .from(VAULT_BUCKET)
+          .upload(storagePath, new Blob([cipherBuffer], { type: CIPHERTEXT_MIME }), {
+            contentType: CIPHERTEXT_MIME,
+            upsert: false,
+          });
+
+        if (storageError) throw storageError;
+        uploadedPath = storagePath;
+
+        // 5) Registro transaccional
+        if (isNewDocument) {
+          const { error: documentError } = await supabase.from('documents').insert({
+            id: targetDocumentId,
+            user_id: user.id,
+            name: logicalName,
+            mime_type: mimeType,
+          });
+          if (documentError) throw documentError;
+        } else {
+          const { error: touchError } = await supabase
+            .from('documents')
+            .update({ mime_type: mimeType, updated_at: new Date().toISOString() })
+            .eq('id', targetDocumentId);
+          if (touchError) throw touchError;
+        }
+
+        const { error: versionError } = await supabase.from('document_versions').insert({
+          document_id: targetDocumentId,
+          version_number: nextVersionNumber,
+          storage_path: storagePath,
+          sha256_hash: sha256Hash,
+          iv,
+          file_size: item.file.size,
+        });
+
+        if (versionError) {
+          if (isNewDocument) {
+            await supabase.from('documents').delete().eq('id', targetDocumentId);
+          }
+          throw versionError;
+        }
+
+        uploadedPath = null;
+
+        // 6) Auditoría
+        await writeAuditLog(user.id, targetDocumentId, 'UPLOAD', {
+          file_name: logicalName,
+          mime_type: mimeType,
+          version_number: nextVersionNumber,
+          storage_path: storagePath,
+          plaintext_size: item.file.size,
+          ciphertext_size: cipherBuffer.byteLength,
+          sha256: sha256Hash,
+        });
+
+        uploadedIds.push(targetDocumentId);
+      } catch (cause) {
+        if (uploadedPath) {
+          await rollbackStorageObject(uploadedPath);
+        }
+        console.warn(`[vault] Falló la subida de "${logicalName}":`, cause);
+        failedFiles.push(logicalName);
+      }
+    }
+
+    await get().fetchDocuments();
+    const isAllFailed = failedFiles.length === items.length && items.length > 0;
+
+    set({
+      isLoading: false,
+      uploadStatus: isAllFailed ? 'error' : 'done',
+      error: isAllFailed
+        ? 'No se pudo subir ningún archivo del lote.'
+        : failedFiles.length > 0
+          ? `Se subieron ${uploadedIds.length} archivos, pero fallaron ${failedFiles.length}.`
+          : null,
+    });
+
+    return { uploadedIds, failedFiles };
   },
 
   downloadAndDecrypt: async (versionData, vaultKey) => {
@@ -677,8 +879,87 @@ export const useVaultStore = create<VaultStore>()((set, get) => ({
     }
   },
 
+  deleteDocumentsBatch: async (documentIds: string[]) => {
+    set({ isLoading: true, error: null });
+
+    try {
+      if (!useDownloadAuthStore.getState().hasDownloadSessionPassword()) {
+        throw new Error('Operación bloqueada: debes autorizar con tu contraseña de descarga.');
+      }
+
+      if (documentIds.length === 0) {
+        set({ isLoading: false });
+        return true;
+      }
+
+      const user = await requireUser();
+      const idSet = new Set(documentIds);
+      const targetDocs = get().documents.filter((doc) => idSet.has(doc.id));
+      const fileNames = targetDocs.map((doc) => doc.name);
+
+      // Consulta en una sola llamada todas las versiones asociadas
+      const { data: versions, error: versionsError } = await supabase
+        .from('document_versions')
+        .select('document_id, storage_path')
+        .in('document_id', documentIds);
+
+      if (versionsError) {
+        throw versionsError;
+      }
+
+      // Elimina todos los blobs .enc de Supabase Storage en una sola operación
+      const storagePaths = (versions ?? [])
+        .map((version) => version.storage_path)
+        .filter((path): path is string => typeof path === 'string' && path.length > 0);
+
+      if (storagePaths.length > 0) {
+        const { error: storageError } = await supabase.storage
+          .from(VAULT_BUCKET)
+          .remove(storagePaths);
+
+        if (storageError) {
+          console.warn('[vault] Error al eliminar blobs de Storage en lote:', storageError.message);
+        }
+      }
+
+      // Elimina todos los documentos seleccionados de la tabla documents en una sola operación
+      const { error: deleteError } = await supabase
+        .from('documents')
+        .delete()
+        .in('id', documentIds)
+        .eq('user_id', user.id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      // Registra un evento DELETE en audit_logs con el detalle de la eliminación en lote
+      await writeAuditLog(user.id, null, 'DELETE', {
+        deleted_count: documentIds.length,
+        file_names: fileNames,
+        storage_paths_removed: storagePaths,
+        deleted_at: new Date().toISOString(),
+      });
+
+      // Filtra los documentIds eliminados del estado local documents de forma inmediata
+      set((state) => ({
+        documents: state.documents.filter((doc) => !idSet.has(doc.id)),
+        isLoading: false,
+        error: null,
+      }));
+
+      return true;
+    } catch (cause) {
+      set({
+        isLoading: false,
+        error: toErrorMessage(cause, 'No se pudieron eliminar los documentos seleccionados.'),
+      });
+      return false;
+    }
+  },
+
   resetUploadStatus: () => {
-    set({ uploadStatus: 'idle' });
+    set({ uploadStatus: 'idle', batchUploadProgress: null });
   },
 
   clearError: () => {

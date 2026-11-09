@@ -5,6 +5,7 @@ import {
   Check,
   Cpu,
   FileUp,
+  FolderUp,
   Loader2,
   ShieldCheck,
   Upload,
@@ -12,9 +13,13 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../auth/stores/useAuthStore';
 import { useVaultStore } from '../stores/useVaultStore';
-import { MAX_VAULT_FILE_SIZE_BYTES } from '../../../core/crypto/vaultCrypto';
 import { formatSize } from '../utils/formatters';
 import type { UploadStatus } from '../../../shared/types';
+import {
+  extractDroppedFiles,
+  validateAndPrepareFiles,
+  type PreparedVaultFile,
+} from '../utils/folderUpload';
 
 interface FileUploadModalProps {
   open: boolean;
@@ -34,22 +39,26 @@ const STEP_INDEX: Record<UploadStatus, number> = {
 export default function FileUploadModal({ open, onClose }: FileUploadModalProps) {
   const vaultKey = useAuthStore((s) => s.vaultKey);
   const uploadStatus = useVaultStore((s) => s.uploadStatus);
+  const batchUploadProgress = useVaultStore((s) => s.batchUploadProgress);
   const vaultIsLoading = useVaultStore((s) => s.isLoading);
   const vaultError = useVaultStore((s) => s.error);
   const uploadDocument = useVaultStore((s) => s.uploadDocument);
+  const uploadDocumentsBatch = useVaultStore((s) => s.uploadDocumentsBatch);
   const resetUploadStatus = useVaultStore((s) => s.resetUploadStatus);
   const clearError = useVaultStore((s) => s.clearError);
 
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<PreparedVaultFile[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   // Al abrir el modal se restablece el estado para partir limpios
   useEffect(() => {
     if (open) {
       queueMicrotask(() => {
-        setFile(null);
+        setFiles([]);
         setLocalError(null);
         setDragging(false);
         resetUploadStatus();
@@ -64,42 +73,77 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
   const finished = uploadStatus === 'done';
   const failed = uploadStatus === 'error';
   const activeIndex = STEP_INDEX[uploadStatus];
-  const progressPct =
-    uploadStatus === 'done'
-      ? 100
-      : uploadStatus === 'idle' || uploadStatus === 'error'
-        ? 0
-        : Math.min(100, Math.round((activeIndex / 4) * 100));
+  const isBatch = Boolean(batchUploadProgress && batchUploadProgress.total > 1);
 
-  const pickFile = (candidate: File | undefined | null) => {
-    if (!candidate || busy) return;
+  let progressPct = 0;
+  if (uploadStatus === 'done') {
+    progressPct = 100;
+  } else if (uploadStatus === 'error') {
+    progressPct = 100;
+  } else if (isBatch && batchUploadProgress) {
+    const currentIdx = Math.max(0, batchUploadProgress.current - 1);
+    const phaseFraction = Math.max(0, activeIndex) / 4;
+    progressPct = Math.min(
+      99,
+      Math.round(((currentIdx + phaseFraction) / batchUploadProgress.total) * 100),
+    );
+  } else if (uploadStatus !== 'idle') {
+    progressPct = Math.min(100, Math.round((activeIndex / 4) * 100));
+  }
+
+  const handleFilesSelected = (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0 || busy) return;
     clearError();
-    if (candidate.size === 0) {
-      setFile(null);
-      setLocalError('El archivo seleccionado está vacío (0 bytes).');
-      return;
-    }
-    if (candidate.size > MAX_VAULT_FILE_SIZE_BYTES) {
-      setFile(null);
-      setLocalError(
-        `El archivo (${formatSize(candidate.size)}) supera el límite seguro de ${formatSize(MAX_VAULT_FILE_SIZE_BYTES)} en RAM.`,
-      );
+    const candidates = Array.from(fileList).map((f) => ({
+      file: f,
+      relativePath: f.webkitRelativePath && f.webkitRelativePath.length > 0 ? f.webkitRelativePath : undefined,
+    }));
+    const { validFiles, error: valError } = validateAndPrepareFiles(candidates);
+    if (valError) {
+      setLocalError(valError);
+      setFiles([]);
       return;
     }
     setLocalError(null);
-    setFile(candidate);
+    setFiles(validFiles);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
-    pickFile(e.dataTransfer.files?.[0]);
+    if (busy) return;
+    clearError();
+    try {
+      const extracted = await extractDroppedFiles(e.dataTransfer);
+      const { validFiles, error: valError } = validateAndPrepareFiles(extracted);
+      if (valError) {
+        setLocalError(valError);
+        setFiles([]);
+        return;
+      }
+      setLocalError(null);
+      setFiles(validFiles);
+    } catch (cause) {
+      setLocalError(
+        cause instanceof Error ? cause.message : 'Error al procesar los archivos arrastrados.',
+      );
+      setFiles([]);
+    }
   };
 
   const handleUpload = async () => {
-    if (!file || busy) return;
-    if (!vaultKey) return;
-    await uploadDocument(file, vaultKey);
+    if (files.length === 0 || busy || !vaultKey) return;
+    if (files.length === 1) {
+      const single = files[0];
+      if (single) {
+        await uploadDocument(single.file, vaultKey, single.logicalName);
+      }
+    } else {
+      await uploadDocumentsBatch(
+        files.map((f) => ({ file: f.file, logicalName: f.logicalName })),
+        vaultKey,
+      );
+    }
   };
 
   const handleClose = () => {
@@ -107,9 +151,22 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
     resetUploadStatus();
     clearError();
     setLocalError(null);
-    setFile(null);
+    setFiles([]);
     onClose();
   };
+
+  const totalBytes = files.reduce((acc, f) => acc + f.file.size, 0);
+
+  let statusLabel = 'Cifrando archivo…';
+  if (failed) {
+    statusLabel = 'Error al procesar el archivo';
+  } else if (finished) {
+    statusLabel = isBatch
+      ? `${batchUploadProgress?.total ?? files.length} archivos cifrados y protegidos`
+      : 'Archivo cifrado y protegido';
+  } else if (isBatch && batchUploadProgress) {
+    statusLabel = `Cifrando archivo ${batchUploadProgress.current} de ${batchUploadProgress.total}…`;
+  }
 
   return (
     <div
@@ -131,7 +188,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             </span>
             <div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F8FAFC]">
-                Proteger nuevo documento
+                Proteger documentos
               </h3>
               <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                 Cifrado local antes de cualquier transmisión al servidor
@@ -159,42 +216,97 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             }}
             onDragLeave={() => setDragging(false)}
             onDrop={handleDrop}
-            onClick={() => !busy && inputRef.current?.click()}
-            className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition ${
+            className={`flex flex-col items-center justify-center gap-2.5 rounded-xl border-2 border-dashed px-6 py-8 text-center transition ${
               dragging
                 ? 'border-sky-500 bg-sky-50 dark:border-[#38BDF8] dark:bg-[#38BDF8]/10'
-                : file
+                : files.length > 0
                   ? 'border-sky-400/60 bg-slate-50 dark:border-[#38BDF8]/60 dark:bg-[#07090E]'
                   : 'border-slate-200 bg-slate-50 hover:border-sky-400 hover:bg-slate-100/60 dark:border-[#1E293B] dark:bg-[#07090E] dark:hover:border-[#38BDF8]/50 dark:hover:bg-[#07090E]/80'
             } ${busy ? 'pointer-events-none opacity-70' : ''}`}
           >
+            {/* Inputs nativos ocultos */}
             <input
-              ref={inputRef}
+              ref={fileInputRef}
               type="file"
+              multiple
               className="hidden"
-              onChange={(e) => pickFile(e.target.files?.[0])}
+              onChange={(e) => {
+                handleFilesSelected(e.target.files);
+                e.target.value = '';
+              }}
               disabled={busy}
             />
+            <input
+              ref={folderInputRef}
+              type="file"
+              multiple
+              {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
+              className="hidden"
+              onChange={(e) => {
+                handleFilesSelected(e.target.files);
+                e.target.value = '';
+              }}
+              disabled={busy}
+            />
+
             <Upload className="h-8 w-8 text-[#0284C7] dark:text-[#38BDF8]" />
-            {file ? (
+
+            {files.length === 1 && files[0] ? (
               <>
                 <p className="max-w-full truncate text-sm font-semibold text-slate-900 dark:text-[#F8FAFC]">
-                  {file.name}
+                  {files[0].logicalName}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
-                  {(file.size / 1024).toFixed(1)} KB · Haz clic para cambiar archivo
+                  {formatSize(files[0].file.size)} · Listo para cifrar
+                </p>
+              </>
+            ) : files.length > 1 ? (
+              <>
+                <p className="max-w-full truncate text-sm font-semibold text-slate-900 dark:text-[#F8FAFC]">
+                  {files.length} archivos listos para cifrar (Tamaño total: {formatSize(totalBytes)})
+                </p>
+                <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
+                  Máx. 50 MB por archivo
                 </p>
               </>
             ) : (
               <>
                 <p className="text-sm font-medium text-slate-900 dark:text-[#F8FAFC]">
-                  Arrastra tu archivo aquí o haz clic para seleccionarlo
+                  Arrastra archivos o una carpeta completa aquí
                 </p>
                 <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
-                  El texto plano nunca abandona este dispositivo sin cifrar · Máx. 50 MB
+                  El texto plano nunca abandona este dispositivo sin cifrar · Máx. 50 MB por archivo
                 </p>
               </>
             )}
+
+            {/* Botones de selección explícita */}
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-2.5">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-[#38BDF8]/50 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#BAE6FD] dark:hover:bg-[#1E293B]"
+              >
+                <FileUp className="h-3.5 w-3.5 text-[#0284C7] dark:text-[#38BDF8]" />
+                Seleccionar archivos
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  folderInputRef.current?.click();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-[#38BDF8]/50 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#BAE6FD] dark:hover:bg-[#1E293B]"
+              >
+                <FolderUp className="h-3.5 w-3.5 text-[#0284C7] dark:text-[#38BDF8]" />
+                Seleccionar carpeta
+              </button>
+            </div>
           </div>
 
           {/* Error de subida o validación local */}
@@ -208,18 +320,14 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
             </div>
           )}
 
-          {/* Barra de progreso minimalista y elegante */}
+          {/* Barra de progreso minimalista y elegante en gradiente Azul Seis Ojos */}
           {(busy || finished || failed) && (
             <div className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-[#1E293B] dark:bg-[#07090E]/90">
               <div className="flex items-center justify-between text-xs">
                 <span className="inline-flex items-center gap-2 font-medium text-sky-800 dark:text-[#BAE6FD]">
                   {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0284C7] dark:text-[#38BDF8]" />}
                   {finished && <ShieldCheck className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />}
-                  {failed
-                    ? 'Error al procesar el archivo'
-                    : finished
-                      ? 'Archivo cifrado y protegido'
-                      : 'Cifrando archivo…'}
+                  {statusLabel}
                 </span>
                 <span className="font-mono font-semibold text-[#0284C7] dark:text-[#38BDF8]">
                   {finished ? '100%' : `${progressPct}%`}
@@ -262,7 +370,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                 <button
                   type="button"
                   onClick={handleUpload}
-                  disabled={!file || busy || !vaultKey}
+                  disabled={files.length === 0 || busy || !vaultKey}
                   className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 dark:text-[#07090E]"
                 >
                   {busy ? (
@@ -273,7 +381,7 @@ export default function FileUploadModal({ open, onClose }: FileUploadModalProps)
                   ) : (
                     <>
                       <Cpu className="h-4 w-4 text-white dark:text-[#07090E]" />
-                      Cifrar y subir
+                      {files.length > 1 ? `Cifrar ${files.length} archivos` : 'Cifrar y subir'}
                     </>
                   )}
                 </button>

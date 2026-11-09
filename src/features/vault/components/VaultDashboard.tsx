@@ -2,21 +2,11 @@
  * VaultDashboard.tsx
  * ---------------------------------------------------------------------------
  * Dashboard institucional "INFINYX" de la bóveda:
- *   1) "Descargar archivo" (flujo gateado por la contraseña en RAM).
- *   2) "Visualizar" (modal centrado y limpio con metadatos y copiado de huella).
- *   3) "Eliminar" (modal de confirmación irreversible y autorización en RAM).
- *   4) Soporte completo de tema dual (Modo Claro / Modo Oscuro).
- *
- * Flujo de descarga
- * -----------------
- * - Si `downloadSessionPassword` ya está en RAM, se descifra y descarga
- *   directamente con la `vaultKey` AES-GCM.
- * - Si es `null`, se abre `DownloadAuthModal`; tras validarse, el callback
- *   `onAuthenticated` ejecuta la descarga del archivo pendiente.
- * - La contraseña de descarga es sólo una compuerta de autorización: el
- *   descifrado sigue usando la `vaultKey` (Zero-Knowledge intacto).
- * - Al cerrar sesión se destruye la contraseña en RAM; al recargar la
- *   página vuelve a `null` automáticamente (el store no usa `persist`).
+ *   1) Selección múltiple y eliminación en lote / vaciado total con `BulkDeleteModal`.
+ *   2) "Descargar archivo" (flujo gateado por la contraseña en RAM).
+ *   3) "Visualizar" (modal centrado y limpio con metadatos y copiado de huella).
+ *   4) "Eliminar" (modal de confirmación individual).
+ *   5) Soporte completo de tema dual (Modo Claro / Modo Oscuro).
  * ---------------------------------------------------------------------------
  */
 
@@ -29,6 +19,7 @@ import {
   Plus,
   Search,
   ShieldCheck,
+  Trash2,
 } from 'lucide-react';
 import HexaMugenLogo from '../../../shared/components/HexaMugenLogo';
 import ThemeToggle from '../../../shared/components/ThemeToggle';
@@ -36,6 +27,7 @@ import { useAuthStore } from '../../auth/stores/useAuthStore';
 import { toVersionDescriptor, useVaultStore } from '../stores/useVaultStore';
 import { useDownloadAuthStore } from '../stores/useDownloadAuthStore';
 import type { VaultDocument } from '../../../shared/types';
+import BulkDeleteModal from './BulkDeleteModal';
 import DocumentRow from './DocumentRow';
 import DownloadAuthModal from './DownloadAuthModal';
 import FileUploadModal from './FileUploadModal';
@@ -45,6 +37,10 @@ export default function VaultDashboard() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [pendingDoc, setPendingDoc] = useState<VaultDocument | null>(null);
+
+  // Estados de selección múltiple y borrado masivo
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleteMode, setBulkDeleteMode] = useState<'selected' | 'all' | null>(null);
 
   // Estados locales para búsqueda y filtrado en RAM
   const [searchQuery, setSearchQuery] = useState('');
@@ -72,6 +68,12 @@ export default function VaultDashboard() {
     // Carga inicial al desbloquear; no se repite en cada render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vaultKey]);
+
+  // Limpia los IDs seleccionados que ya no existan en el catálogo de documentos
+  useEffect(() => {
+    const docIdSet = new Set(documents.map((d) => d.id));
+    setSelectedIds((prev) => prev.filter((id) => docIdSet.has(id)));
+  }, [documents]);
 
   /** Filtrado y ordenación 100 % en memoria RAM sin llamadas adicionales a red */
   const filteredDocuments = useMemo(() => {
@@ -155,6 +157,31 @@ export default function VaultDashboard() {
     await signOut();
   };
 
+  const handleToggleSelect = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    );
+  };
+
+  const allVisibleSelected =
+    filteredDocuments.length > 0 &&
+    filteredDocuments.every((d) => selectedIds.includes(d.id));
+
+  const handleToggleSelectAll = () => {
+    if (allVisibleSelected) {
+      const visibleSet = new Set(filteredDocuments.map((d) => d.id));
+      setSelectedIds((prev) => prev.filter((id) => !visibleSet.has(id)));
+    } else {
+      const visibleIds = filteredDocuments.map((d) => d.id);
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const docsForBulkDelete =
+    bulkDeleteMode === 'all'
+      ? documents
+      : documents.filter((d) => selectedIds.includes(d.id));
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A] transition-colors dark:bg-[#07090E] dark:text-[#F8FAFC]">
       {/* 1. Barra Superior (<header>) */}
@@ -210,14 +237,38 @@ export default function VaultDashboard() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setUploadOpen(true)}
-            className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 dark:text-[#07090E]"
-          >
-            <Plus className="h-4 w-4 shrink-0" />
-            <span>Proteger Nuevo Documento</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {selectedIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setBulkDeleteMode('selected')}
+                className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3.5 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200 dark:hover:bg-red-500/25"
+              >
+                <Trash2 className="h-4 w-4 shrink-0" />
+                <span>Eliminar seleccionados ({selectedIds.length})</span>
+              </button>
+            )}
+
+            {documents.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setBulkDeleteMode('all')}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-red-300 dark:hover:border-red-500/40 dark:hover:bg-red-500/10"
+              >
+                <Trash2 className="h-4 w-4 shrink-0" />
+                <span>Borrar todo</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setUploadOpen(true)}
+              className="inline-flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-[#0284C7] via-[#0EA5E9] to-[#38BDF8] px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-sky-500/20 transition hover:brightness-110 dark:text-[#07090E]"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              <span>Proteger Nuevo Documento</span>
+            </button>
+          </div>
         </div>
 
         {/* 3. Barra de Búsqueda y Filtros Instantáneos en Cliente (100 % en memoria RAM) */}
@@ -351,6 +402,15 @@ export default function VaultDashboard() {
               <table className="w-full border-collapse text-left">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wider text-slate-500 dark:border-[#1E293B] dark:bg-[#0A0E17] dark:text-[#94A3B8]">
+                    <th scope="col" className="w-10 px-4 py-3.5 text-center">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={handleToggleSelectAll}
+                        aria-label="Seleccionar todos los documentos visibles"
+                        className="h-4 w-4 cursor-pointer rounded border-slate-300 accent-[#38BDF8] focus:ring-2 focus:ring-[#38BDF8]/20 dark:border-[#1E293B]"
+                      />
+                    </th>
                     <th scope="col" className="px-6 py-3.5 font-semibold">
                       Nombre del archivo
                     </th>
@@ -379,6 +439,8 @@ export default function VaultDashboard() {
                     <DocumentRow
                       key={doc.id}
                       doc={doc}
+                      selected={selectedIds.includes(doc.id)}
+                      onToggleSelect={handleToggleSelect}
                       downloading={downloadingId}
                       onDownload={handleDownload}
                     />
@@ -403,6 +465,16 @@ export default function VaultDashboard() {
         open={authModalOpen}
         onClose={handleAuthModalClose}
         onAuthenticated={handleAuthenticated}
+      />
+      <BulkDeleteModal
+        open={bulkDeleteMode !== null}
+        docsToDelete={docsForBulkDelete}
+        isDeleteAll={bulkDeleteMode === 'all'}
+        onClose={() => setBulkDeleteMode(null)}
+        onDeleted={() => {
+          setSelectedIds([]);
+          setBulkDeleteMode(null);
+        }}
       />
     </div>
   );
