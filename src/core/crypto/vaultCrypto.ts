@@ -137,7 +137,13 @@ export async function decryptBuffer(
 export async function computeSHA256(data: ArrayBuffer): Promise<string> {
   return bufferToHex(await crypto.subtle.digest("SHA-256", data));
 }
+export interface FolderMetadata {
+  kind: "folder";
+  fileCount: number;
+  originalSize: number;
+}
 export interface FileMetadata {
+  folder?: FolderMetadata;
   name: string;
   mimeType: string;
   size: number;
@@ -194,10 +200,40 @@ export async function decryptMetadata(
     !/^[a-f0-9]{64}$/.test(data.sha256)
   )
     throw new Error("Metadatos descifrados inválidos.");
+  let folder: FolderMetadata | undefined;
+  if ("folder" in data) {
+    const f = data.folder;
+    if (
+      !f ||
+      typeof f !== "object" ||
+      !("kind" in f) ||
+      f.kind !== "folder" ||
+      !("fileCount" in f) ||
+      typeof f.fileCount !== "number" ||
+      !Number.isSafeInteger(f.fileCount) ||
+      f.fileCount < 1 ||
+      f.fileCount > 500 ||
+      !("originalSize" in f) ||
+      typeof f.originalSize !== "number" ||
+      !Number.isSafeInteger(f.originalSize) ||
+      f.originalSize < 0 ||
+      f.originalSize > MAX_VAULT_FILE_SIZE_BYTES ||
+      data.mimeType !== "application/zip" ||
+      data.name.includes("/") ||
+      data.name.includes("\\")
+    )
+      throw new Error("Metadatos de carpeta inválidos.");
+    folder = {
+      kind: "folder",
+      fileCount: f.fileCount,
+      originalSize: f.originalSize,
+    };
+  }
   return {
     name: data.name,
     mimeType: data.mimeType,
     size: data.size,
     sha256: data.sha256,
+    ...(folder ? { folder } : {}),
   };
 }

@@ -112,7 +112,7 @@ export default function DocumentPreviewModal({
           {/* Nombre del archivo */}
           <div>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-[#94A3B8]">
-              Nombre del archivo
+              {doc.folder ? "Nombre de la carpeta" : "Nombre del archivo"}
             </span>
             <p
               className="mt-1 break-all text-base font-semibold text-slate-900 dark:text-[#F8FAFC]"
@@ -122,6 +122,13 @@ export default function DocumentPreviewModal({
             </p>
           </div>
 
+          {doc.folder && (
+            <p className="text-sm text-slate-500">
+              {doc.folder.fileCount} archivos ·{" "}
+              {formatSize(doc.folder.originalSize)} de contenido · Descarga como
+              ZIP
+            </p>
+          )}
           {/* Cuadrícula de metadatos clave */}
           <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3.5 dark:border-[#1E293B] dark:bg-[#07090E]">
             <div>

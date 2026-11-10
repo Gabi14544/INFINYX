@@ -16,7 +16,9 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: "pnpm run dev --port 5180 --strictPort",
+    command: process.env.INFINYX_TEST_PREVIEW
+      ? "pnpm exec vite preview --outDir /tmp/infinyx-browser-build --port 5180 --strictPort"
+      : "pnpm run dev --port 5180 --strictPort",
     url: "http://127.0.0.1:5180",
     reuseExistingServer: false,
     env: {

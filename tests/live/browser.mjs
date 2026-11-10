@@ -10,6 +10,7 @@ import { deriveAuthPassword } from "../../src/core/crypto/vaultCrypto.ts";
 const require = createRequire(new URL("../../package.json", import.meta.url));
 const { chromium, expect } = require("@playwright/test");
 const { createClient } = require("@supabase/supabase-js");
+const { unzipSync, strFromU8 } = require("fflate");
 const url = process.env.VITE_SUPABASE_URL;
 const ref = new URL(url).hostname.split(".")[0];
 const keys = await (
@@ -118,19 +119,33 @@ try {
   console.log("PASS: Subida cifrada real desde Chromium");
   await page
     .getByRole("button", {
-      name: "Descargar archivo browser-check.txt",
+      name: "Crear contraseña de descarga y eliminación",
       exact: true,
     })
     .click();
   const dialog = page.getByRole("dialog");
-  await expect(
-    dialog.getByRole("heading", { name: "Crear Contraseña Única de Descarga" }),
-  ).toBeVisible({ timeout: 15000 });
   const second = "Browser separate " + randomUUID();
-  await dialog.locator("input").nth(0).fill(second);
-  await dialog.locator("input").nth(1).fill(second);
+  await dialog
+    .getByLabel("Nueva contraseña de descarga y eliminación", { exact: true })
+    .fill(second);
+  await dialog.getByLabel("Confirmar contraseña").fill(second);
+  await dialog
+    .getByRole("button", { name: "Crear contraseña", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  await page
+    .getByRole("button", {
+      name: "Descargar archivo browser-check.txt",
+      exact: true,
+    })
+    .click();
+  await dialog
+    .getByLabel("Contraseña de descarga y eliminación", { exact: true })
+    .fill(second);
   const downloading = page.waitForEvent("download", { timeout: 20000 });
-  await dialog.getByRole("button", { name: "Crear y autorizar" }).click();
+  await dialog
+    .getByRole("button", { name: "Autorizar pestaña", exact: true })
+    .click();
   const download = await downloading;
   assert((await readFile(await download.path())).equals(payload));
   console.log(
@@ -160,15 +175,15 @@ try {
     .click();
   await page.locator("input[webkitdirectory]").setInputFiles(folder);
   await page
-    .getByRole("button", { name: "Cifrar 3 archivos", exact: true })
+    .getByRole("button", { name: "Cifrar y subir", exact: true })
     .click();
   await expect(
     page.getByRole("button", { name: "Cerrar y ver en catálogo" }),
   ).toBeVisible({ timeout: 30000 });
   await page.getByRole("button", { name: "Cerrar y ver en catálogo" }).click();
-  await expect(page.locator("tbody tr")).toHaveCount(3);
+  await expect(page.locator("tbody tr")).toHaveCount(1);
   await expect(
-    page.getByText("ClientFolder/Sub", { exact: true }),
+    page.getByText("Carpeta cifrada · 3 archivos · ZIP", { exact: true }),
   ).toBeVisible();
   console.log(
     "PASS: Carpeta real con subcarpetas y descarte de archivos de sistema",
@@ -187,52 +202,35 @@ try {
   );
   assert(versions.data.every((v) => v.encrypted_metadata.startsWith("v2:")));
   console.log("PASS: Rutas de carpeta cifradas en el backend real");
+  assert.equal(rows.data.length, 1);
+  assert.equal(versions.data.length, 1);
+  const folderDownload = page.waitForEvent("download");
   await page
-    .getByRole("checkbox", {
-      name: "Seleccionar documento ClientFolder/a.txt",
+    .getByRole("button", {
+      name: "Descargar archivo ClientFolder",
       exact: true,
     })
-    .check();
-  await page
-    .getByRole("checkbox", {
-      name: "Seleccionar documento ClientFolder/b.txt",
-      exact: true,
-    })
-    .check();
-  await page
-    .getByRole("button", { name: "Eliminar seleccionados (2)", exact: true })
     .click();
-  const bulk = page.getByRole("dialog");
-  await bulk.locator("input[type=password]").fill("incorrect second password");
-  await bulk.getByRole("button", { name: "Eliminar (2)", exact: true }).click();
-  await expect(bulk.getByRole("alert")).toContainText("incorrecta", {
-    timeout: 15000,
-  });
-  await expect(page.locator("tbody tr")).toHaveCount(3);
-  console.log("PASS: Borrado masivo rechazado sin contraseña correcta");
-  await bulk.locator("input[type=password]").fill(second);
-  await bulk.getByRole("button", { name: "Eliminar (2)", exact: true }).click();
-  await expect(page.locator("tbody tr")).toHaveCount(1, { timeout: 30000 });
-  await expect(
-    page.getByRole("button", {
-      name: "Descargar archivo ClientFolder/Sub/c.txt",
-      exact: true,
-    }),
-  ).toBeVisible();
+  const folderZip = await folderDownload;
+  assert.equal(folderZip.suggestedFilename(), "ClientFolder.zip");
+  const entries = unzipSync(await readFile(await folderZip.path()));
+  assert.deepEqual(Object.keys(entries).sort(), [
+    "ClientFolder/Sub/c.txt",
+    "ClientFolder/a.txt",
+    "ClientFolder/b.txt",
+  ]);
+  assert.equal(strFromU8(entries["ClientFolder/Sub/c.txt"]), "folder C");
   console.log(
-    "PASS: Borrado real de seleccionados conserva los no seleccionados",
+    "PASS: ZIP único conserva subcarpetas y reutiliza autorización de pestaña",
   );
   await page.getByRole("button", { name: "Borrar todo", exact: true }).click();
   const all = page.getByRole("dialog");
-  await expect(all.locator("input[type=password]")).toHaveValue("");
-  await all.locator("input[type=password]").fill(second);
+  await expect(all.locator("input[type=password]")).toHaveCount(0);
   await all.getByRole("button", { name: "Vaciar bóveda", exact: true }).click();
   await expect(page.getByText("Tu bóveda está vacía")).toBeVisible({
     timeout: 30000,
   });
-  console.log(
-    "PASS: Vaciado real de bóveda con nueva confirmación de contraseña",
-  );
+  console.log("PASS: Vaciado real con confirmación y autorización de pestaña");
   await page.getByRole("button", { name: "Cerrar Sesión" }).click();
   await expect(
     page.getByRole("heading", { name: "Acceso a la bóveda" }),

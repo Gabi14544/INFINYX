@@ -65,12 +65,16 @@ Consulta [el informe de revisión](docs/SECURITY_REVIEW.md) para las correccione
 
 ## Validación remota de esta revisión
 
-Las cuatro migraciones y `vault-access` ya se aplicaron al proyecto de pruebas autorizado. Se aprobaron 33 comprobaciones reales de SDK/API y el flujo completo de subida/descarga/borrado en Chromium, retirando después las cuentas temporales. El frontend todavía no está publicado. Consultar el informe para los detalles y límites.
+Las cuatro migraciones y `vault-access` ya se aplicaron al proyecto de pruebas autorizado. Se aprobaron 33 comprobaciones reales de SDK/API y el flujo completo de subida/descarga/borrado en Chromium, retirando después las cuentas temporales. Esta validación corresponde a la revisión v2 inicial; el frontend v2 se publicó posteriormente en Pages. Consultar los informes para los detalles y límites.
 
 Las pruebas remotas son explícitas y usan cuentas temporales sin envío de correos: `pnpm test:live` y `pnpm test:live:browser` (este último requiere un frontend local iniciado y Chromium configurado). No se incluyen en CI.
 
-## Carpetas y operaciones en lote en v2
+## Carpetas y autorización de pestaña
 
-Se conserva la subida de archivos/carpetas y la selección para borrado múltiple o vaciado. El nombre lógico de carpeta se cifra junto con el resto de metadatos; una descarga usa sólo el nombre base. La subida admite hasta 500 archivos por lote y el borrado se divide en solicitudes autorizadas de hasta 50 documentos. Se conservan los fallos para reintento y se detiene el avance si la bóveda se bloquea.
+El panel permite **Crear contraseña de descarga y eliminación** de forma explícita. Configurarla no ejecuta ni autoriza operaciones. La primera descarga o eliminación solicita esa contraseña; después se conserva sólo en memoria de la pestaña hasta bloquear, cerrar sesión o recargar. Las eliminaciones siguen requiriendo confirmación. El gateway continúa verificando cada operación.
 
-Esta integración ya pasa sus pruebas locales. El handler actualizado `vault-access` ya se desplegó con aprobación explícita y pasó las pruebas contra el endpoint remoto. Ver `docs/RELEASE_READINESS.md` antes de hacer push al autodespliegue de Pages.
+Las nuevas carpetas se empaquetan localmente en un ZIP, se cifran como un único documento y se descargan como `NombreCarpeta.zip`. Se conservan los archivos y sus rutas de subcarpetas; tanto el contenido original como el ZIP deben caber en 50 MiB. Se admite un máximo de 500 archivos por selección. Se omiten archivos de sistema conocidos; las carpetas vacías no se representan y los archivos vacíos se rechazan mediante la validación existente. La compresión usa un worker del mismo origen, cancelado al bloquear la bóveda.
+
+Los documentos v2 existentes siguen funcionando. Las carpetas que se subieron antes como documentos independientes mantienen esa organización. No se necesita una migración ni un cambio del backend para estas funciones.
+
+Ver [informe de implementación y pruebas](docs/DEV_FOLDERS_AUTH_REPORT.md). Implementación desarrollada y probada en `dev`, con integración local en `main` autorizada por el usuario. La publicación requiere un push posterior.

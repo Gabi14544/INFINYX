@@ -15,11 +15,9 @@ import { useAuthStore } from "../../auth/stores/useAuthStore";
 import { useVaultStore } from "../stores/useVaultStore";
 import { formatSize } from "../utils/formatters";
 import type { UploadStatus } from "../../../shared/types";
-import {
-  extractDroppedFiles,
-  validateAndPrepareFiles,
-  type PreparedVaultFile,
-} from "../utils/folderUpload";
+import { extractDroppedFiles } from "../utils/folderUpload";
+import { groupUploadUnits, type UploadUnit } from "../archive/folderArchive";
+import { packageUpload, type PackagedUpload } from "../archive/packageUpload";
 
 interface FileUploadModalProps {
   open: boolean;
@@ -50,17 +48,20 @@ export default function FileUploadModal({
   const resetUploadStatus = useVaultStore((s) => s.resetUploadStatus);
   const clearError = useVaultStore((s) => s.clearError);
 
-  const [files, setFiles] = useState<PreparedVaultFile[]>([]);
+  const [files, setFiles] = useState<UploadUnit[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const selectionEpoch = useRef(0);
+  const packaging = useRef<AbortController | null>(null);
+  const [preparing, setPreparing] = useState<string | null>(null);
 
   // Al abrir el modal se restablece el estado para partir limpios
   useEffect(() => {
     const epoch = selectionEpoch;
+    const preparation = packaging;
     const current = ++epoch.current;
     if (open) {
       queueMicrotask(() => {
@@ -68,19 +69,22 @@ export default function FileUploadModal({
         setFiles([]);
         setLocalError(null);
         setDragging(false);
+        setPreparing(null);
         resetUploadStatus();
         clearError();
       });
     }
     return () => {
       epoch.current++;
+      preparation.current?.abort();
     };
   }, [open, resetUploadStatus, clearError]);
 
   if (!open) return null;
 
   const busy =
-    vaultIsLoading && uploadStatus !== "done" && uploadStatus !== "error";
+    preparing !== null ||
+    (vaultIsLoading && uploadStatus !== "done" && uploadStatus !== "error");
   const finished = uploadStatus === "done";
   const failed = uploadStatus === "error";
   const activeIndex = STEP_INDEX[uploadStatus];
@@ -115,14 +119,15 @@ export default function FileUploadModal({
           ? f.webkitRelativePath
           : undefined,
     }));
-    const { validFiles, error: valError } = validateAndPrepareFiles(candidates);
-    if (valError) {
-      setLocalError(valError);
+    try {
+      setFiles(groupUploadUnits(candidates));
+      setLocalError(null);
+    } catch (error) {
+      setLocalError(
+        error instanceof Error ? error.message : "Selección inválida.",
+      );
       setFiles([]);
-      return;
     }
-    setLocalError(null);
-    setFiles(validFiles);
   };
 
   const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
@@ -134,15 +139,8 @@ export default function FileUploadModal({
     try {
       const extracted = await extractDroppedFiles(e.dataTransfer);
       if (selection !== selectionEpoch.current) return;
-      const { validFiles, error: valError } =
-        validateAndPrepareFiles(extracted);
-      if (valError) {
-        setLocalError(valError);
-        setFiles([]);
-        return;
-      }
+      setFiles(groupUploadUnits(extracted));
       setLocalError(null);
-      setFiles(validFiles);
     } catch (cause) {
       if (selection !== selectionEpoch.current) return;
       setLocalError(
@@ -155,23 +153,52 @@ export default function FileUploadModal({
   };
 
   const handleUpload = async () => {
-    if (files.length === 0 || busy || !vaultKey) return;
-    if (files.length === 1) {
-      const single = files[0];
-      if (single) {
-        await uploadDocument(single.file, vaultKey, single.logicalName);
-      }
-    } else {
-      const result = await uploadDocumentsBatch(
-        files.map((f) => ({ file: f.file, logicalName: f.logicalName })),
-        vaultKey,
-      );
-      if (result.failedFiles.length) {
-        const failed = new Set(result.failedFiles);
-        setFiles((previous) =>
-          previous.filter((item) => failed.has(item.logicalName)),
+    if (!files.length || busy || !vaultKey) return;
+    const selection = ++selectionEpoch.current;
+    const controller = new AbortController();
+    packaging.current = controller;
+    setLocalError(null);
+    try {
+      const ready: PackagedUpload[] = [];
+      // Validate/package every unit before starting any upload.
+      for (const unit of files) {
+        setPreparing(
+          unit.kind === "folder"
+            ? `Empaquetando ${unit.name}…`
+            : "Preparando archivos…",
         );
+        ready.push(await packageUpload(unit, controller.signal));
       }
+      if (selection !== selectionEpoch.current) return;
+      setPreparing(null);
+      if (ready.length === 1) {
+        const item = ready[0]!;
+        await uploadDocument(
+          item.file,
+          vaultKey,
+          item.logicalName,
+          item.folder,
+        );
+      } else {
+        const result = await uploadDocumentsBatch(ready, vaultKey);
+        if (selection !== selectionEpoch.current) return;
+        if (result.failedFiles.length) {
+          const failed = new Set(result.failedFiles);
+          setFiles((previous) =>
+            previous.filter((item) => failed.has(item.name)),
+          );
+        }
+      }
+    } catch (error) {
+      if (selection === selectionEpoch.current && !controller.signal.aborted)
+        setLocalError(
+          error instanceof Error
+            ? error.message
+            : "No se pudo preparar la carpeta.",
+        );
+    } finally {
+      if (packaging.current === controller) packaging.current = null;
+      if (selection === selectionEpoch.current) setPreparing(null);
     }
   };
 
@@ -185,7 +212,7 @@ export default function FileUploadModal({
     onClose();
   };
 
-  const totalBytes = files.reduce((acc, f) => acc + f.file.size, 0);
+  const totalBytes = files.reduce((acc, f) => acc + f.size, 0);
 
   let statusLabel = "Cifrando archivo…";
   if (failed) {
@@ -289,20 +316,24 @@ export default function FileUploadModal({
             {files.length === 1 && files[0] ? (
               <>
                 <p className="max-w-full truncate text-sm font-semibold text-slate-900 dark:text-[#F8FAFC]">
-                  {files[0].logicalName}
+                  {files[0].kind === "folder" ? "Carpeta: " : ""}
+                  {files[0].name}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
-                  {formatSize(files[0].file.size)} · Listo para cifrar
+                  {formatSize(files[0].size)} ·{" "}
+                  {files[0].kind === "folder"
+                    ? `${files[0].entries.length} archivos · Se descargará como ZIP`
+                    : "Listo para cifrar"}
                 </p>
               </>
             ) : files.length > 1 ? (
               <>
                 <p className="max-w-full truncate text-sm font-semibold text-slate-900 dark:text-[#F8FAFC]">
-                  {files.length} archivos listos para cifrar (Tamaño total:{" "}
+                  {files.length} elementos listos para cifrar (Tamaño total:{" "}
                   {formatSize(totalBytes)})
                 </p>
                 <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
-                  Máx. 50 MB por archivo
+                  Máx. 50 MiB por archivo o carpeta
                 </p>
               </>
             ) : (
@@ -312,7 +343,7 @@ export default function FileUploadModal({
                 </p>
                 <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                   El texto plano nunca abandona este dispositivo sin cifrar ·
-                  Máx. 50 MB por archivo
+                  Máx. 50 MiB por archivo o carpeta
                 </p>
               </>
             )}
@@ -370,7 +401,7 @@ export default function FileUploadModal({
                   {finished && (
                     <ShieldCheck className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />
                   )}
-                  {statusLabel}
+                  {preparing ?? statusLabel}
                 </span>
                 <span className="font-mono font-semibold text-[#0284C7] dark:text-[#38BDF8]">
                   {finished ? "100%" : `${progressPct}%`}
@@ -421,13 +452,13 @@ export default function FileUploadModal({
                   {busy ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin text-white dark:text-[#07090E]" />
-                      Protegiendo…
+                      {preparing ? "Preparando…" : "Protegiendo…"}
                     </>
                   ) : (
                     <>
                       <Cpu className="h-4 w-4 text-white dark:text-[#07090E]" />
                       {files.length > 1
-                        ? `Cifrar ${files.length} archivos`
+                        ? `Cifrar ${files.length} elementos`
                         : "Cifrar y subir"}
                     </>
                   )}

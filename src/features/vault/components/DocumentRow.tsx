@@ -36,6 +36,8 @@ interface DocumentRowProps {
   busy: boolean;
   onToggleSelect: (id: string) => void;
   onDownload: (doc: VaultDocument) => void;
+  onRequestSetup?: () => void;
+  passwordConfigured?: boolean;
 }
 
 export default function DocumentRow({
@@ -45,6 +47,8 @@ export default function DocumentRow({
   busy,
   onToggleSelect,
   onDownload,
+  onRequestSetup,
+  passwordConfigured,
 }: DocumentRowProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -72,10 +76,19 @@ export default function DocumentRow({
         <td className="px-6 py-4">
           <div className="flex items-center gap-3">
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-sky-200 bg-sky-50 text-[#0284C7] dark:border-[#38BDF8]/25 dark:bg-[#38BDF8]/10 dark:text-[#38BDF8]">
-              <FileText className="h-4 w-4" />
+              {doc.folder ? (
+                <Folder className="h-4 w-4" />
+              ) : (
+                <FileText className="h-4 w-4" />
+              )}
             </span>
             <div className="flex min-w-0 flex-col gap-0.5">
-              {folderPath && (
+              {doc.folder && (
+                <span className="text-xs text-slate-500">
+                  Carpeta cifrada · {doc.folder.fileCount} archivos · ZIP
+                </span>
+              )}
+              {folderPath && !doc.folder && (
                 <span
                   title={`Carpeta: ${folderPath}`}
                   className="inline-flex w-fit items-center gap-1 rounded border border-[#38BDF8]/25 bg-[#38BDF8]/10 px-1.5 py-0.5 text-[11px] font-medium text-[#BAE6FD]"
@@ -175,7 +188,10 @@ export default function DocumentRow({
             {/* 3. Eliminar */}
             <button
               type="button"
-              onClick={() => setDeleteOpen(true)}
+              onClick={() => {
+                if (passwordConfigured === false) onRequestSetup?.();
+                else setDeleteOpen(true);
+              }}
               disabled={isBusy}
               aria-label={`Eliminar ${doc.name}`}
               title="Eliminar documento"

@@ -61,6 +61,7 @@ export type AuditAction = "UPLOAD" | "DOWNLOAD_AUTHORIZED" | "DELETE";
  * consume la UI de la bóveda.
  */
 export interface VaultDocument {
+  folder?: import("../../core/crypto/vaultCrypto").FolderMetadata;
   id: string;
   name: string;
   mimeType: string | null;

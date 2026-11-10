@@ -24,11 +24,15 @@ import { useDownloadAuthStore } from "../stores/useDownloadAuthStore";
 interface DownloadAuthModalProps {
   open: boolean;
   onClose: () => void;
+  intent?: "create" | "authorize";
+  onCreated?: () => void;
+  onRequestSetup?: () => void;
   /** El servidor validó la contraseña, guardada temporalmente en RAM. */
   onAuthenticated?: () => void;
 }
 
-type ModalMode = "loading" | "create" | "enter";
+type ModalMode =
+  "loading" | "create" | "enter" | "missing" | "configured" | "error";
 
 const MIN_PASSWORD_LENGTH = 15;
 
@@ -36,6 +40,9 @@ export default function DownloadAuthModal({
   open,
   onClose,
   onAuthenticated,
+  intent = "authorize",
+  onCreated,
+  onRequestSetup,
 }: DownloadAuthModalProps) {
   const user = useAuthStore((s) => s.user);
   const setDownloadSessionPassword = useDownloadAuthStore(
@@ -72,7 +79,7 @@ export default function DownloadAuthModal({
         if (!activeUser) {
           if (!cancelled) {
             setError("No hay un usuario autenticado en la sesión actual.");
-            setMode("enter");
+            setMode("error");
           }
           return;
         }
@@ -81,7 +88,15 @@ export default function DownloadAuthModal({
           "status",
         );
         if (cancelled) return;
-        setMode(configured ? "enter" : "create");
+        setMode(
+          intent === "create"
+            ? configured
+              ? "configured"
+              : "create"
+            : configured
+              ? "enter"
+              : "missing",
+        );
       } catch (cause) {
         if (cancelled) return;
         setError(
@@ -89,8 +104,8 @@ export default function DownloadAuthModal({
             ? cause.message
             : "No se pudo consultar el estado de la contraseña de descarga.",
         );
-        // Ante duda se ofrece la vista de ingreso (no se sobrescribe nada).
-        setMode("enter");
+        // Ante un error de consulta se bloquea la configuración.
+        setMode("error");
       }
     };
 
@@ -98,7 +113,7 @@ export default function DownloadAuthModal({
     return () => {
       cancelled = true;
     };
-  }, [open, user]);
+  }, [open, user, intent]);
 
   if (!open) return null;
 
@@ -172,11 +187,10 @@ export default function DownloadAuthModal({
       if (generation !== sensitiveGeneration()) return;
       await vaultAccess("setup", password);
       if (generation !== sensitiveGeneration()) return;
-      // Sólo en RAM: nunca en localStorage/sessionStorage.
-      setDownloadSessionPassword(password);
+      // Setup never authorizes an operation implicitly. The first operation asks once.
       setPassword("");
       setConfirm("");
-      onAuthenticated?.();
+      onCreated?.();
     } catch (cause) {
       setError(
         cause instanceof Error && cause.message.length > 0
@@ -229,19 +243,33 @@ export default function DownloadAuthModal({
   };
 
   const isCreate = mode === "create";
+  const close = () => {
+    setPassword("");
+    setConfirm("");
+    setShowPassword(false);
+    onClose();
+  };
+  const title =
+    mode === "loading"
+      ? "Verificando seguridad…"
+      : mode === "create"
+        ? "Crear contraseña de descarga y eliminación"
+        : mode === "missing"
+          ? "Primero crea tu contraseña"
+          : mode === "configured"
+            ? "Contraseña ya configurada"
+            : mode === "error"
+              ? "No se pudo consultar la configuración"
+              : "Autorizar descarga y eliminación";
 
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={
-        isCreate
-          ? "Crear contraseña única de descarga"
-          : "Ingresar contraseña de descarga"
-      }
+      aria-label={title}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs dark:bg-black/80"
       onClick={() => {
-        if (!busy) onClose();
+        if (!busy) close();
       }}
     >
       <div
@@ -255,22 +283,18 @@ export default function DownloadAuthModal({
             </span>
             <div>
               <h3 className="text-lg font-semibold text-slate-900 dark:text-[#F8FAFC]">
-                {mode === "loading"
-                  ? "Verificando seguridad…"
-                  : isCreate
-                    ? "Crear Contraseña Única de Descarga"
-                    : "Ingresar Contraseña de Descarga"}
+                {title}
               </h3>
               <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
                 {isCreate
                   ? "Usa una contraseña diferente de la maestra: se verificará en el servidor"
-                  : "Autoriza la descarga del archivo seleccionado"}
+                  : "La autorización se conserva en esta pestaña hasta bloquear, recargar o cerrar sesión"}
               </p>
             </div>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
             disabled={busy}
             aria-label="Cerrar"
             className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-[#94A3B8] dark:hover:bg-[#111827] dark:hover:text-[#F8FAFC]"
@@ -285,6 +309,40 @@ export default function DownloadAuthModal({
               <Loader2 className="h-5 w-5 animate-spin text-[#0284C7] dark:text-[#38BDF8]" />
               Consultando credenciales de autorización…
             </div>
+          ) : mode === "missing" ||
+            mode === "configured" ||
+            mode === "error" ? (
+            <div className="space-y-4">
+              <p
+                role={mode === "error" ? "alert" : "status"}
+                className="text-sm"
+              >
+                {mode === "missing"
+                  ? "Usa el botón “Crear contraseña de descarga y eliminación” del panel antes de descargar o eliminar."
+                  : mode === "configured"
+                    ? "Tu contraseña ya está configurada. Se solicitará al autorizar la pestaña."
+                    : error}
+              </p>
+              {mode === "missing" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    close();
+                    onRequestSetup?.();
+                  }}
+                  className="rounded-lg bg-sky-600 p-3 text-sm font-semibold text-white"
+                >
+                  Ir a crear contraseña
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={close}
+                className="rounded-lg border p-3 text-sm"
+              >
+                Cerrar
+              </button>
+            </div>
           ) : (
             <form
               onSubmit={isCreate ? handleCreate : handleEnter}
@@ -292,8 +350,9 @@ export default function DownloadAuthModal({
             >
               <p className="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3 text-xs leading-relaxed text-slate-600 dark:border-[#1E293B] dark:bg-[#07090E] dark:text-[#94A3B8]">
                 <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#0284C7] dark:text-[#38BDF8]" />
-                Ingresa tu contraseña de autorización para habilitar las
-                descargas durante esta sesión.
+                {isCreate
+                  ? "Crea una contraseña distinta de la maestra. Después se solicitará al autorizar la primera operación de esta pestaña."
+                  : "Ingresa la contraseña creada para habilitar descargas y eliminaciones en esta pestaña."}
               </p>
 
               <div className="space-y-1.5">
@@ -302,14 +361,16 @@ export default function DownloadAuthModal({
                   className="text-sm font-medium text-slate-700 dark:text-[#F8FAFC]"
                 >
                   {isCreate
-                    ? "Nueva contraseña de descarga"
-                    : "Contraseña de descarga"}
+                    ? "Nueva contraseña de descarga y eliminación"
+                    : "Contraseña de descarga y eliminación"}
                 </label>
                 <div className="relative">
                   <input
                     id="download-password"
                     type={showPassword ? "text" : "password"}
                     required
+                    maxLength={1024}
+                    minLength={isCreate ? MIN_PASSWORD_LENGTH : 1}
                     autoComplete={
                       isCreate ? "new-password" : "current-password"
                     }
@@ -377,7 +438,7 @@ export default function DownloadAuthModal({
               <div className="flex gap-2.5 pt-1">
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={close}
                   disabled={busy}
                   className="flex-1 rounded-lg border border-slate-200 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-200 dark:border-[#1E293B] dark:bg-[#111827] dark:text-[#F8FAFC] dark:hover:border-[#38BDF8]/40 dark:hover:text-[#BAE6FD] disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -400,7 +461,7 @@ export default function DownloadAuthModal({
                   ) : (
                     <>
                       <KeyRound className="h-4 w-4 text-white dark:text-[#07090E]" />
-                      {isCreate ? "Crear y autorizar" : "Autorizar descarga"}
+                      {isCreate ? "Crear contraseña" : "Autorizar pestaña"}
                     </>
                   )}
                 </button>

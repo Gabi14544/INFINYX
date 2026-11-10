@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   FolderOpen,
   Loader2,
+  KeyRound,
   LogOut,
   Plus,
   Search,
@@ -30,12 +31,19 @@ import type { VaultDocument } from "../../../shared/types";
 import BulkDeleteModal from "./BulkDeleteModal";
 import DocumentRow from "./DocumentRow";
 import DownloadAuthModal from "./DownloadAuthModal";
+import { vaultAccess } from "../../../shared/lib/vaultAccess";
 import FileUploadModal from "./FileUploadModal";
 
 export default function VaultDashboard() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<
+    "loading" | "missing" | "configured" | "error"
+  >("loading");
+  const [statusRefresh, setStatusRefresh] = useState(0);
+  const [setupNotice, setSetupNotice] = useState<string | null>(null);
   const [pendingDoc, setPendingDoc] = useState<VaultDocument | null>(null);
 
   // Estados de selección múltiple y borrado masivo
@@ -73,6 +81,27 @@ export default function VaultDashboard() {
     }
     // Carga inicial al desbloquear; no se repite en cada render.
   }, [vaultKey, fetchDocuments]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void vaultAccess<{ configured: boolean }>("status")
+      .then(({ configured }) => {
+        if (!cancelled)
+          setPasswordStatus(configured ? "configured" : "missing");
+      })
+      .catch(() => {
+        if (!cancelled) setPasswordStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultKey, statusRefresh]);
+  const requestSetup = () => {
+    setSetupNotice(
+      "Primero usa el botón “Crear contraseña de descarga y eliminación”.",
+    );
+    document.getElementById("setup-password-button")?.focus();
+  };
 
   const selectedIds = useMemo(() => {
     const visible = new Set(documents.map((doc) => doc.id));
@@ -139,7 +168,16 @@ export default function VaultDashboard() {
    * - Sin ella -> se encola el documento y se abre el modal de seguridad.
    */
   const handleDownload = (doc: VaultDocument) => {
-    if (downloadingId) return;
+    if (
+      downloadingId ||
+      passwordStatus === "loading" ||
+      passwordStatus === "error"
+    )
+      return;
+    if (passwordStatus !== "configured") {
+      requestSetup();
+      return;
+    }
     if (downloadSessionPassword !== null) {
       void runDownload(doc);
       return;
@@ -251,8 +289,15 @@ export default function VaultDashboard() {
             {selectedIds.length > 0 && (
               <button
                 type="button"
-                onClick={() => setBulkDeleteMode("selected")}
-                disabled={isLoading}
+                onClick={() => {
+                  if (passwordStatus === "missing") requestSetup();
+                  else setBulkDeleteMode("selected");
+                }}
+                disabled={
+                  isLoading ||
+                  passwordStatus === "loading" ||
+                  passwordStatus === "error"
+                }
                 className="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3.5 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 dark:border-red-500/40 dark:bg-red-500/15 dark:text-red-200 dark:hover:bg-red-500/25"
               >
                 <Trash2 className="h-4 w-4 shrink-0" />
@@ -263,8 +308,15 @@ export default function VaultDashboard() {
             {documents.length > 0 && (
               <button
                 type="button"
-                onClick={() => setBulkDeleteMode("all")}
-                disabled={isLoading}
+                onClick={() => {
+                  if (passwordStatus === "missing") requestSetup();
+                  else setBulkDeleteMode("all");
+                }}
+                disabled={
+                  isLoading ||
+                  passwordStatus === "loading" ||
+                  passwordStatus === "error"
+                }
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-50 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-red-300 dark:hover:border-red-500/40 dark:hover:bg-red-500/10"
               >
                 <Trash2 className="h-4 w-4 shrink-0" />
@@ -283,6 +335,63 @@ export default function VaultDashboard() {
             </button>
           </div>
         </div>
+
+        <section
+          aria-label="Contraseña de descarga y eliminación"
+          className="mt-5 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700"
+        >
+          <KeyRound className="h-5 w-5 text-sky-600" />
+          {passwordStatus === "configured" ? (
+            <p role="status" className="text-sm">
+              Contraseña de descarga y eliminación configurada.
+            </p>
+          ) : passwordStatus === "error" ? (
+            <>
+              <p role="alert" className="text-sm">
+                No se pudo comprobar la contraseña configurada.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setPasswordStatus("loading");
+                  setStatusRefresh((n) => n + 1);
+                }}
+                className="rounded-lg border px-3 py-2 text-sm"
+              >
+                Reintentar comprobación
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="flex-1 text-sm">
+                Crea una contraseña adicional para descargar o eliminar tus
+                archivos y carpetas.
+              </p>
+              <button
+                id="setup-password-button"
+                type="button"
+                disabled={passwordStatus === "loading"}
+                onClick={() => {
+                  setSetupNotice(null);
+                  setSetupOpen(true);
+                }}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {passwordStatus === "loading"
+                  ? "Comprobando contraseña…"
+                  : "Crear contraseña de descarga y eliminación"}
+              </button>
+            </>
+          )}
+          {setupNotice && (
+            <p
+              role="status"
+              className="basis-full text-sm text-sky-700 dark:text-sky-300"
+            >
+              {setupNotice}
+            </p>
+          )}
+        </section>
 
         {/* 3. Barra de Búsqueda y Filtros Instantáneos en Cliente (100 % en memoria RAM) */}
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-12">
@@ -481,7 +590,13 @@ export default function VaultDashboard() {
                       key={doc.id}
                       doc={doc}
                       selected={selectedIds.includes(doc.id)}
-                      busy={isLoading}
+                      busy={
+                        isLoading ||
+                        passwordStatus === "loading" ||
+                        passwordStatus === "error"
+                      }
+                      passwordConfigured={passwordStatus === "configured"}
+                      onRequestSetup={requestSetup}
                       onToggleSelect={handleToggleSelect}
                       downloading={downloadingId}
                       onDownload={handleDownload}
@@ -504,9 +619,25 @@ export default function VaultDashboard() {
       {/* Modales */}
       <FileUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
       <DownloadAuthModal
+        intent="create"
+        open={setupOpen}
+        onClose={() => {
+          setSetupOpen(false);
+          setStatusRefresh((n) => n + 1);
+        }}
+        onCreated={() => {
+          setPasswordStatus("configured");
+          setSetupOpen(false);
+          setSetupNotice(
+            "Contraseña creada. Se solicitará al autorizar la primera descarga o eliminación.",
+          );
+        }}
+      />
+      <DownloadAuthModal
         open={authModalOpen}
         onClose={handleAuthModalClose}
         onAuthenticated={handleAuthenticated}
+        onRequestSetup={requestSetup}
       />
       <BulkDeleteModal
         open={bulkDeleteMode !== null}

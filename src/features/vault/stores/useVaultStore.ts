@@ -6,6 +6,7 @@ import {
   encryptBuffer,
   encryptMetadata,
   MAX_VAULT_FILE_SIZE_BYTES,
+  type FolderMetadata,
 } from "../../../core/crypto/vaultCrypto";
 import { readBoundedResponse } from "../../../shared/lib/boundedDownload";
 import { supabase } from "../../../shared/lib/supabase";
@@ -72,7 +73,9 @@ export function toVersionDescriptor(
         storagePath: v.storage_path,
         iv: v.iv,
         sha256Hash: v.sha256_hash,
-        fileName: splitFolderAndFileName(doc.name).baseName,
+        fileName: doc.folder
+          ? doc.name + ".zip"
+          : splitFolderAndFileName(doc.name).baseName,
         mimeType: doc.mimeType ?? "application/octet-stream",
       }
     : null;
@@ -97,9 +100,10 @@ interface VaultActions {
     file: File,
     vaultKey: CryptoKey,
     logicalName?: string,
+    folder?: FolderMetadata,
   ) => Promise<string | null>;
   uploadDocumentsBatch: (
-    items: Array<{ file: File; logicalName?: string }>,
+    items: Array<{ file: File; logicalName?: string; folder?: FolderMetadata }>,
     vaultKey: CryptoKey,
   ) => Promise<{ uploadedIds: string[]; failedFiles: string[] }>;
   deleteDocumentsBatch: (ids: string[], password?: string) => Promise<boolean>;
@@ -126,6 +130,7 @@ export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
     file: File,
     suppliedKey: CryptoKey,
     logicalNameOverride?: string,
+    folder?: FolderMetadata,
   ) => {
     const { user, vaultKey, check } = activeVault();
     const logicalName = resolveLogicalDocumentName(file, logicalNameOverride);
@@ -137,7 +142,9 @@ export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
     )
       throw new Error("Archivo vacío, demasiado grande o nombre inválido.");
     // Name matching happens only in decrypted client memory, never in a server query.
-    const existing = get().documents.find((d) => d.name === logicalName);
+    const existing = get().documents.find(
+      (d) => d.name === logicalName && Boolean(d.folder) === Boolean(folder),
+    );
     const documentId = existing?.id ?? crypto.randomUUID();
     const versionNumber = (existing?.latestVersion?.version_number ?? 0) + 1;
     if (versionNumber > 3)
@@ -152,6 +159,7 @@ export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
     const metadata = await encryptMetadata(
       {
         name: logicalName,
+        ...(folder ? { folder } : {}),
         mimeType: file.type || "application/octet-stream",
         size: file.size,
         sha256,
@@ -191,6 +199,7 @@ export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
       );
     const now = new Date().toISOString();
     const updated: VaultDocument = {
+      ...(folder ? { folder } : {}),
       id: documentId,
       name: logicalName,
       mimeType: file.type || "application/octet-stream",
@@ -278,6 +287,7 @@ export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
           documents.push({
             id: row.id,
             name: metadata.name,
+            ...(metadata.folder ? { folder: metadata.folder } : {}),
             mimeType: metadata.mimeType,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
@@ -296,7 +306,7 @@ export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
           set({ isLoading: false, error: message(error) });
       }
     },
-    uploadDocument: async (file, key, logicalName) => {
+    uploadDocument: async (file, key, logicalName, folder) => {
       if (get().isLoading) return null;
       const generation = sensitiveGeneration();
       set({
@@ -306,7 +316,7 @@ export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
         batchUploadProgress: null,
       });
       try {
-        const id = await uploadOne(file, key, logicalName);
+        const id = await uploadOne(file, key, logicalName, folder);
         await get().fetchDocuments();
         if (generation === sensitiveGeneration())
           set({ isLoading: false, uploadStatus: "done" });
@@ -361,7 +371,18 @@ export const useVaultStore = create<VaultState & VaultActions>()((set, get) => {
             },
           });
           try {
-            uploadedIds.push(await uploadOne(item.file, key, item.logicalName));
+            uploadedIds.push(
+              await uploadOne(
+                item.file,
+                key,
+                item.logicalName,
+                items.find(
+                  (input) =>
+                    input.file === item.file &&
+                    (input.logicalName ?? input.file.name) === item.logicalName,
+                )?.folder,
+              ),
+            );
           } catch (error) {
             vault.check();
             failedFiles.push(item.logicalName);

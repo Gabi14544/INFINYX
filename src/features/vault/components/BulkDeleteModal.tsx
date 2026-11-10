@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import type { VaultDocument } from "../../../shared/types";
 import { useAuthStore } from "../../auth/stores/useAuthStore";
+import { useDownloadAuthStore } from "../stores/useDownloadAuthStore";
 import { useVaultStore } from "../stores/useVaultStore";
 
 interface BulkDeleteModalProps {
@@ -31,6 +32,9 @@ export default function BulkDeleteModal({
   onDeleted,
 }: BulkDeleteModalProps) {
   const user = useAuthStore((s) => s.user);
+  const sessionPassword = useDownloadAuthStore(
+    (s) => s.downloadSessionPassword,
+  );
   const deleteDocumentsBatch = useVaultStore((s) => s.deleteDocumentsBatch);
 
   const [password, setPassword] = useState("");
@@ -80,7 +84,7 @@ export default function BulkDeleteModal({
       return;
     }
 
-    if (password.length === 0) {
+    if (!sessionPassword && password.length === 0) {
       setError(
         "Debes escribir tu contraseña de descarga para autorizar la eliminación.",
       );
@@ -91,7 +95,10 @@ export default function BulkDeleteModal({
 
     try {
       const docIds = docsToDelete.map((doc) => doc.id);
-      const success = await deleteDocumentsBatch(docIds, password);
+      const success = await deleteDocumentsBatch(
+        docIds,
+        sessionPassword ?? password,
+      );
       setPassword("");
 
       if (success) {
@@ -206,47 +213,55 @@ export default function BulkDeleteModal({
             </ul>
           </div>
 
-          {/* Validación de Contraseña de Descarga (Siempre obligatoria) */}
-          <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3.5 dark:border-[#1E293B] dark:bg-[#07090E]">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-[#F8FAFC]">
-              <KeyRound className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />
-              <span>Autorización obligatoria</span>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
-              Por seguridad, introduce tu Contraseña de Descarga para confirmar
-              la eliminación:
+          {sessionPassword ? (
+            <p role="status" className="text-sm text-sky-700 dark:text-sky-300">
+              Autorización activa en esta pestaña. Confirma el borrado de los
+              elementos indicados.
             </p>
-            <div className="relative mt-2">
-              <input
-                id="bulk-delete-auth-password"
-                type={showPassword ? "text" : "password"}
-                required
-                autoComplete="current-password"
-                placeholder="Contraseña de autorización"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={busy}
-                autoFocus
-                className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 pr-11 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20 disabled:opacity-60 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:placeholder:text-slate-600 dark:focus:border-red-500 dark:focus:ring-red-500/20"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                disabled={busy}
-                aria-label={
-                  showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
-                }
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50 dark:text-[#94A3B8] dark:hover:bg-[#111827] dark:hover:text-[#BAE6FD]"
-              >
-                {showPassword ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-          </div>
-
+          ) : (
+            <>
+              {/* Validación de Contraseña de Descarga (Siempre obligatoria) */}
+              <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3.5 dark:border-[#1E293B] dark:bg-[#07090E]">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-[#F8FAFC]">
+                  <KeyRound className="h-4 w-4 text-[#0284C7] dark:text-[#38BDF8]" />
+                  <span>Autorización obligatoria</span>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-[#94A3B8]">
+                  Por seguridad, introduce tu Contraseña de Descarga para
+                  confirmar la eliminación:
+                </p>
+                <div className="relative mt-2">
+                  <input
+                    id="bulk-delete-auth-password"
+                    type={showPassword ? "text" : "password"}
+                    required
+                    autoComplete="current-password"
+                    placeholder="Contraseña de autorización"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={busy}
+                    autoFocus
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 pr-11 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:border-red-500 focus:ring-2 focus:ring-red-500/20 disabled:opacity-60 dark:border-[#1E293B] dark:bg-[#0D111A] dark:text-[#F8FAFC] dark:placeholder:text-slate-600 dark:focus:border-red-500 dark:focus:ring-red-500/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    disabled={busy}
+                    aria-label={
+                      showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
+                    }
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 disabled:opacity-50 dark:text-[#94A3B8] dark:hover:bg-[#111827] dark:hover:text-[#BAE6FD]"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
           {/* Error */}
           {error && (
             <div
@@ -270,7 +285,7 @@ export default function BulkDeleteModal({
             </button>
             <button
               type="submit"
-              disabled={busy || password.length === 0}
+              disabled={busy || (!sessionPassword && password.length === 0)}
               className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? (

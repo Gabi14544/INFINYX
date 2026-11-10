@@ -38,6 +38,8 @@ test("login uses a derived credential, renders the vault, then clears it on logo
       await route.fulfill({ json: [] });
     else if (url.pathname === "/auth/v1/logout")
       await route.fulfill({ status: 204 });
+    else if (url.pathname === "/functions/v1/vault-access")
+      await route.fulfill({ json: { configured: true } });
     else if (url.pathname === "/auth/v1/user")
       await route.fulfill({ json: user });
     else throw new Error(`Unexpected backend call ${url.pathname}`);
