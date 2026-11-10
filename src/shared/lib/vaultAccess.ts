@@ -5,12 +5,37 @@ export async function vaultAccess<T>(
   password?: string,
   extra: Record<string, string | string[]> = {},
 ): Promise<T> {
-  const { data, error } = await supabase.functions.invoke("vault-access", {
-    body: { action, password, ...extra },
-  });
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const statusError =
+    "No se pudo consultar si existe una contraseña de descarga y eliminación. El servicio de autorización no está disponible desde esta dirección. Revisa la conexión o utiliza la dirección principal del sitio y reintenta.";
+  const result = await (async () => {
+    try {
+      const request = supabase.functions.invoke("vault-access", {
+        body: { action, password, ...extra },
+        signal: controller.signal,
+      });
+      // Bound only the read-only status query; a slow mutation may still commit.
+      if (action !== "status") return await request;
+      return await Promise.race([
+        request,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(statusError));
+            controller.abort();
+          }, 12_000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  const { data, error } = result;
   if (error) {
     let message =
-      "No se pudo autorizar la operación. Comprueba el backend y tu contraseña de descarga.";
+      action === "status"
+        ? statusError
+        : "No se pudo conectar con el servicio de autorización. Comprueba tu conexión y la dirección del sitio.";
     if ("context" in error && error.context instanceof Response) {
       try {
         const body: unknown = await error.context.json();

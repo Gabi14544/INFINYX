@@ -43,6 +43,9 @@ export default function VaultDashboard() {
     "loading" | "missing" | "configured" | "error"
   >("loading");
   const [statusRefresh, setStatusRefresh] = useState(0);
+  const [passwordStatusError, setPasswordStatusError] = useState<string | null>(
+    null,
+  );
   const [setupNotice, setSetupNotice] = useState<string | null>(null);
   const [pendingDoc, setPendingDoc] = useState<VaultDocument | null>(null);
 
@@ -89,8 +92,15 @@ export default function VaultDashboard() {
         if (!cancelled)
           setPasswordStatus(configured ? "configured" : "missing");
       })
-      .catch(() => {
-        if (!cancelled) setPasswordStatus("error");
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setPasswordStatus("error");
+          setPasswordStatusError(
+            cause instanceof Error
+              ? cause.message
+              : "No se pudo consultar el servicio de autorización.",
+          );
+        }
       });
     return () => {
       cancelled = true;
@@ -158,8 +168,11 @@ export default function VaultDashboard() {
     if (!descriptor || !vaultKey || downloadingId) return;
     setDownloadingId(doc.id);
     clearError();
-    await downloadAndDecrypt(descriptor, vaultKey);
-    setDownloadingId(null);
+    try {
+      await downloadAndDecrypt(descriptor, vaultKey);
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   /**
@@ -348,8 +361,17 @@ export default function VaultDashboard() {
           ) : passwordStatus === "error" ? (
             <>
               <p role="alert" className="text-sm">
-                No se pudo comprobar la contraseña configurada.
+                {passwordStatusError}
               </p>
+              <button
+                id="setup-password-button"
+                type="button"
+                disabled
+                title="Reintenta la consulta al servicio para habilitar la configuración"
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Crear contraseña de descarga y eliminación
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -366,6 +388,11 @@ export default function VaultDashboard() {
               <p className="flex-1 text-sm">
                 Crea una contraseña adicional para descargar o eliminar tus
                 archivos y carpetas.
+                {passwordStatus === "loading" && (
+                  <span role="status" className="block text-xs">
+                    Consultando el servicio de autorización…
+                  </span>
+                )}
               </p>
               <button
                 id="setup-password-button"
@@ -377,9 +404,7 @@ export default function VaultDashboard() {
                 }}
                 className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {passwordStatus === "loading"
-                  ? "Comprobando contraseña…"
-                  : "Crear contraseña de descarga y eliminación"}
+                Crear contraseña de descarga y eliminación
               </button>
             </>
           )}
@@ -590,8 +615,8 @@ export default function VaultDashboard() {
                       key={doc.id}
                       doc={doc}
                       selected={selectedIds.includes(doc.id)}
-                      busy={
-                        isLoading ||
+                      busy={isLoading}
+                      authorizationUnavailable={
                         passwordStatus === "loading" ||
                         passwordStatus === "error"
                       }

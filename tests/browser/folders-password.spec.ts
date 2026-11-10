@@ -266,3 +266,90 @@ test("an existing password authorizes the first deletion and is reused for later
   expect(state.setupCalls).toBe(0);
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
+
+test("a stalled password lookup never pretends to decrypt uploaded files and recovers on retry", async ({
+  page,
+}) => {
+  const state = await vaultFixture(page);
+  let stalled = true;
+  await page.route(
+    "https://test-project.supabase.co/functions/v1/vault-access",
+    async (route) => {
+      if (route.request().postDataJSON().action === "status" && stalled) return;
+      await route.fallback();
+    },
+  );
+  await login(page);
+  const create = page.getByRole("button", {
+    name: "Crear contraseña de descarga y eliminación",
+    exact: true,
+  });
+  await expect(create).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Proteger Nuevo Documento", exact: true })
+    .first()
+    .click();
+  await page
+    .locator("input[type=file]")
+    .first()
+    .setInputFiles({
+      name: "during-check.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("test"),
+    });
+  await page
+    .getByRole("button", { name: "Cifrar y subir", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Cerrar y ver en catálogo" }).click();
+  const download = page.getByRole("button", {
+    name: "Descargar archivo during-check.txt",
+    exact: true,
+  });
+  await expect(download).toHaveText("Descargar");
+  await expect(download).toBeDisabled();
+  await expect(page.getByText("Descifrando…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("alert")).toContainText(
+    "No se pudo consultar si existe",
+    { timeout: 16000 },
+  );
+  await expect(create).toBeVisible();
+  await expect(download).toHaveText("Descargar");
+  expect(state.downloadCalls).toBe(0);
+  expect(state.setupCalls).toBe(0);
+  stalled = false;
+  await page
+    .getByRole("button", { name: "Reintentar comprobación", exact: true })
+    .click();
+  await expect(create).toBeEnabled();
+  await create.click();
+  await expect(
+    page.getByLabel("Nueva contraseña de descarga y eliminación", {
+      exact: true,
+    }),
+  ).toBeVisible();
+});
+
+test("a blocked status request reports service availability without claiming a password exists", async ({
+  page,
+}) => {
+  await vaultFixture(page);
+  await page.route(
+    "https://test-project.supabase.co/functions/v1/vault-access",
+    async (route) => {
+      if (route.request().postDataJSON().action === "status")
+        return route.abort("failed");
+      await route.fallback();
+    },
+  );
+  await login(page);
+  await expect(page.getByRole("alert")).toContainText(
+    "No se pudo consultar si existe",
+  );
+  await expect(
+    page.getByRole("button", {
+      name: "Crear contraseña de descarga y eliminación",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("Descifrando…", { exact: true })).toHaveCount(0);
+});

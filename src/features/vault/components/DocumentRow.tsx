@@ -34,6 +34,7 @@ interface DocumentRowProps {
   downloading: string | null;
   selected: boolean;
   busy: boolean;
+  authorizationUnavailable?: boolean;
   onToggleSelect: (id: string) => void;
   onDownload: (doc: VaultDocument) => void;
   onRequestSetup?: () => void;
@@ -45,6 +46,7 @@ export default function DocumentRow({
   downloading,
   selected,
   busy,
+  authorizationUnavailable = false,
   onToggleSelect,
   onDownload,
   onRequestSetup,
@@ -53,7 +55,8 @@ export default function DocumentRow({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const version = doc.latestVersion;
-  const isBusy = busy || downloading === doc.id;
+  const isDownloading = downloading === doc.id;
+  const isBusy = busy || isDownloading;
 
   const { folderPath, baseName } = splitFolderAndFileName(doc.name);
 
@@ -155,12 +158,12 @@ export default function DocumentRow({
             <button
               type="button"
               onClick={() => onDownload(doc)}
-              disabled={!version || isBusy}
+              disabled={!version || isBusy || authorizationUnavailable}
               title="Descargar archivo"
               aria-label={`Descargar archivo ${doc.name}`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-800 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-[#38BDF8]/40 dark:bg-[#0284C7]/20 dark:text-[#BAE6FD] dark:hover:bg-[#0284C7]/35"
             >
-              {isBusy ? (
+              {isDownloading ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-[#0284C7] dark:text-[#38BDF8]" />
                   Descifrando…
@@ -192,7 +195,7 @@ export default function DocumentRow({
                 if (passwordConfigured === false) onRequestSetup?.();
                 else setDeleteOpen(true);
               }}
-              disabled={isBusy}
+              disabled={isBusy || authorizationUnavailable}
               aria-label={`Eliminar ${doc.name}`}
               title="Eliminar documento"
               className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/25 dark:bg-red-500/10 dark:text-red-300 dark:hover:border-red-500/50 dark:hover:bg-red-500/20"
